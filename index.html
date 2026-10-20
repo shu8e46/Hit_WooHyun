@@ -308,7 +308,7 @@
 <div id="menu" class="screen">
   <div class="stage" id="stage">
     <img class="menu-bg" src="assets/ui/menu_bg.jpg" alt="">
-    <img class="menu-title" src="assets/ui/title.png" alt="지우현 존@나패기">
+    <img class="menu-title" id="menuTitle" src="assets/ui/title.png" alt="지우현 존@나패기">
     <div class="menu-items">
       <button class="mi" data-act="start">게임 시작</button>
       <button class="mi" data-act="inv">인벤토리</button>
@@ -331,6 +331,7 @@
     </div>
     <div class="set-page" data-page="general">
       <div class="set-row"><span>사운드</span><button id="soundBtn" class="toggle"></button></div>
+      <div class="set-row"><span>예쁜말<small>타이틀 화면 제목을 예쁜말로 바꿔요</small></span><button id="niceBtn" class="toggle"></button></div>
       <div class="set-row"><span>데이터 초기화<small>얻은 무기, 챕터 진행도가 모두 사라져요</small></span><button id="resetBtn" class="danger">초기화</button></div>
       <div class="set-col">
         <span>개발자 명령어</span>
@@ -1227,6 +1228,7 @@ const player = {
   weapons: [DEFAULT_WEAPON], equipped: null,      // equipped가 null이면 기본 주먹
   heals: {},                                      // 힐템 id → 개수 (챕터 시작할 때 healKit()으로 채움)
   cleared: [],                                    // 클리어한 챕터 id
+  nice: false,                                    // 설정 '예쁜말': 켜면 타이틀 이미지가 title2.png
   seen: [],                                       // 한 번이라도 만난 적 이름 (도감)
   god: false,                                     // godmode (체력 1000000)
 };
@@ -1242,13 +1244,14 @@ try {
   if (Array.isArray(sv.weapons)) player.weapons = [DEFAULT_WEAPON, ...sv.weapons.filter(id => WEAPONS[id] && id !== DEFAULT_WEAPON && id !== 'godfist')];
   if (WEAPONS[sv.equipped] && sv.equipped !== 'godfist') player.equipped = sv.equipped;
   if (Array.isArray(sv.cleared)) player.cleared = sv.cleared;
+  if (typeof sv.nice === 'boolean') player.nice = sv.nice;
   if (Array.isArray(sv.seen)) player.seen = sv.seen.filter(n => typeof n === 'string');
   if (typeof sv.muted === 'boolean') muted = sv.muted;
   if (sv.vol) for (const k in vol) if (typeof sv.vol[k] === 'number') vol[k] = Math.min(1, Math.max(0, sv.vol[k]));
   // godmode는 저장하지 않음: 새로고침하면 꺼짐 (예전 세이브에 남은 god 값도 무시)
 } catch (e) {}
 function saveGame() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ weapons: player.weapons, equipped: player.equipped, cleared: player.cleared, seen: player.seen, muted, vol })); } catch (e) {}
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ weapons: player.weapons, equipped: player.equipped, cleared: player.cleared, seen: player.seen, nice: player.nice, muted, vol })); } catch (e) {}
 }
 const isCleared = id => player.cleared.includes(id);
 
@@ -5034,6 +5037,8 @@ const soundBtn = document.getElementById('soundBtn'), cmdOut = document.getEleme
 function renderSettings() {
   soundBtn.textContent = muted ? 'OFF' : 'ON';
   soundBtn.classList.toggle('off', muted);
+  niceBtn.textContent = player.nice ? 'ON' : 'OFF';
+  niceBtn.classList.toggle('off', !player.nice);
   volNote.classList.toggle('hidden', !muted);
 }
 // 볼륨 탭: 슬라이더를 움직이면 바로 반영, 놓으면 저장하고 그 종류 소리를 한 번 들려줌
@@ -5060,6 +5065,13 @@ function setSettingsPage(page) {
 }
 settingsEl.querySelectorAll('.set-tabs .tab').forEach(t => t.addEventListener('click', () => setSettingsPage(t.dataset.page)));
 soundBtn.addEventListener('click', () => { initAudio(); setMuted(!muted); });
+// 예쁜말: 타이틀 이미지 바꾸기 (두 이미지는 크기가 같음)
+const niceBtn = document.getElementById('niceBtn'), menuTitle = document.getElementById('menuTitle');
+const TITLE_IMG = { off: 'assets/ui/title.png', on: 'assets/ui/title2.png' };
+function applyNice() { menuTitle.src = player.nice ? TITLE_IMG.on : TITLE_IMG.off; }
+niceBtn.addEventListener('click', () => { player.nice = !player.nice; applyNice(); saveGame(); renderSettings(); });
+applyNice();
+new Image().src = TITLE_IMG.on;   // 켰을 때 바로 바뀌게 미리 불러둠
 document.getElementById('resetBtn').addEventListener('click', () => {
   if (!confirm('정말 초기화할까요?\n얻은 무기와 챕터 진행도가 모두 사라져요.')) return;
   resetData();
