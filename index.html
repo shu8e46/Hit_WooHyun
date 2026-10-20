@@ -58,6 +58,15 @@
     -webkit-text-stroke: 3px #1a0008;
     filter: drop-shadow(0 6px 0 #000) drop-shadow(0 0 28px rgba(255, 80, 60, .55));
   }
+  /* 보스전 K.O. 화면: 보스 체력바처럼 검붉은 빨강 + 검정 */
+  #ui.boss-ko { background: rgba(0, 0, 0, .9); }
+  .boss-ko .title { background: none; color: #c20000; -webkit-text-stroke: 3px #000; filter: drop-shadow(0 6px 0 #000) drop-shadow(0 0 30px rgba(194, 0, 0, .55)); }
+  .boss-ko .sub { color: #b31212; }
+  .boss-ko .stats span { color: #8f0606; }
+  .boss-ko .stats b { color: #e00000; }
+  .boss-ko .result-btns button { background: #0a0000; color: #e00000; border-color: #8f0606; box-shadow: 0 6px 0 #3a0505; }
+  .boss-ko .result-btns button:first-child { background: linear-gradient(#e00000, #9c0000); color: #000; border-color: #000; box-shadow: 0 6px 0 #000; }
+  .boss-ko .result-btns button:active { box-shadow: 0 2px 0 #000; }
   .title.game-name { font-size: clamp(44px, 8vw, 96px); white-space: nowrap; }
   .sub { font-size: 18px; color: #ffb0d8; letter-spacing: 2px; margin: 6px 0 26px; }
   .keys { display: inline-flex; flex-direction: column; gap: 10px; text-align: left; font-size: 21px; margin-bottom: 18px; }
@@ -182,6 +191,13 @@
   .set-col { flex-direction: column; align-items: stretch; margin-bottom: 18px; }
   .set-row small, .set-col small { display: block; font-size: 12px; color: #999; margin-top: 2px; }
   .set-row button { font-size: 16px; padding: 8px 18px; box-shadow: 0 3px 0 #000; min-width: 90px; }
+  .set-tabs { justify-content: center; margin: -6px 0 6px; }
+  .set-page { min-height: 300px; }
+  .vol-row { display: grid; grid-template-columns: 1fr 190px 52px; align-items: center; gap: 14px; text-align: left; padding: 14px 0; border-bottom: 1px solid #2a2436; font-family: "Malgun Gothic", sans-serif; font-size: 18px; }
+  .vol-row small { display: block; font-size: 12px; color: #999; margin-top: 2px; }
+  .vol-row b { font-size: 16px; text-align: right; color: #ffd23a; font-variant-numeric: tabular-nums; }
+  .vol-row input { width: 100%; accent-color: #ffd23a; cursor: pointer; }
+  .vol-note { font-family: "Malgun Gothic", sans-serif; font-size: 13px; color: #ff9a9a; margin-top: 12px; }
   .toggle.off { background: linear-gradient(#777, #555); color: #eee; }
   .danger { background: linear-gradient(#ff7a7a, #e0242f); color: #fff; }
   #cmdForm { display: flex; gap: 8px; }
@@ -280,20 +296,27 @@
     </div>
     <div class="menu-load" id="loadMsg">불러오는 중...</div>
   </div>
-  <div class="menu-ver">1.0.0</div>
+  <div class="menu-ver">1.1.0</div>
 </div>
 
 <!-- 설정 -->
 <div id="settings" class="overlay hidden">
   <div class="box">
     <h2>설정</h2>
-    <div class="set-row"><span>사운드</span><button id="soundBtn" class="toggle"></button></div>
-    <div class="set-row"><span>데이터 초기화<small>얻은 무기, 챕터 진행도가 모두 사라져요</small></span><button id="resetBtn" class="danger">초기화</button></div>
-    <div class="set-col">
-      <span>개발자 명령어</span>
-      <form id="cmdForm"><input id="cmdInput" autocomplete="off" spellcheck="false"><button>실행</button></form>
-      <div id="cmdOut"></div>
+    <div class="tabs set-tabs">
+      <button class="tab on" data-page="general">일반</button>
+      <button class="tab" data-page="volume">볼륨</button>
     </div>
+    <div class="set-page" data-page="general">
+      <div class="set-row"><span>사운드</span><button id="soundBtn" class="toggle"></button></div>
+      <div class="set-row"><span>데이터 초기화<small>얻은 무기, 챕터 진행도가 모두 사라져요</small></span><button id="resetBtn" class="danger">초기화</button></div>
+      <div class="set-col">
+        <span>개발자 명령어</span>
+        <form id="cmdForm"><input id="cmdInput" autocomplete="off" spellcheck="false"><button>실행</button></form>
+        <div id="cmdOut"></div>
+      </div>
+    </div>
+    <div class="set-page hidden" data-page="volume" id="volPage"></div>
     <button class="back" data-back>← 뒤로</button>
   </div>
 </div>
@@ -444,7 +467,7 @@ WEAPONS.sheath = {
     cooldown: 1.5,        // 실패하면 쿨타임. 성공하면 쿨타임 없이 바로 다시 사용 가능
     pose: 'assets/weapons/scabbard/counter.png',   // 화면 전체(1920x1080) 기준 이미지
     // 카운터 성공 소리: 이 중 하나를 랜덤 재생 (같은 소리 연속 X). 비워두면 합성 금속음
-    sounds: Array.from({ length: 11 }, (_, i) => `assets/weapons/scabbard/sounds/counter_${i + 1}.mp3`),
+    sounds: Array.from({ length: 7 }, (_, i) => `assets/weapons/scabbard/sounds/counter_${i + 1}.mp3`),
   },
 };
 // 하차벨: CHAPTER 1 외전(꿀잠 통학버스) 클리어 보상. 1회용 — 좌클릭하면 버스가 와서 현재 적을 들이받고, 무기는 사라짐
@@ -499,13 +522,14 @@ WEAPONS.godfist = {
 const BS = 'assets/weapons/beat_saber/';
 WEAPONS.saber = {
   name: '비트 세이버',
-  grade: 'legendary',
+  grade: 'epic',
   desc: '비트세이버 우현이 쓰던 양손 광선검. 빨강, 파랑 번갈아 벤다.',
-  icon: BS + 'icon.png',
-  damage: 75,
-  attackInterval: 0.3,
+  icon: BS + 'idle1.png',
+  damage: 60,
+  attackInterval: 0.4,
   swing: { impact: 0.06, hold: 0.12 },   // 휘두름 → 타격 프레임이 나오는 순간(초), 타격 프레임 유지 시간
   hitSound: 'saber',
+  swingSounds: [1, 2, 3, 4, 5, 6, 7, 8].map(n => BS + 'sounds/swing_' + n + '.MP3'),   // 좌클릭 하자마자 휘두르는 소리
   dual: true,
   sprites: {
     idle: BS + 'idle1.png',                 // 오른손 (빨강)
@@ -514,7 +538,7 @@ WEAPONS.saber = {
     leftAttackFrames: [{ src: BS + 'swing1_LH.png', until: 0.06 }, { src: BS + 'hit1_LH.png' }],
   },
   ability: { name: '카운터' },
-  counter: { window: 0.15, reflect: 0.2, cooldown: 2, pose: BS + 'counter1.png' },
+  counter: { window: 0.15, reflect: 0.2, cooldown: 2, pose: BS + 'counter1.png', sounds: [1, 2, 3, 4].map(n => BS + 'sounds/counter_' + n + '.MP3') },
 };
 const DEFAULT_WEAPON = 'fist';
 const GOD_HP = 1000000;
@@ -644,6 +668,7 @@ const CHAPTERS = [
     background: 'assets/chapters/ch3/background.jpg',
     thumb: 'assets/chapters/ch3/door.png',
     healReward: { ramen: 1 },   // 처음 깨면 앞으로 챕터 시작할 때마다 이만큼 더 가지고 시작
+    hpReward: 350,     // 처음 깨면 최대 체력 +350
     bossRetry: true,   // 보스전에서 쓰러지면 보스전부터 다시 시작 가능
     // hint: 등장할 때 이름 아래 뜨는 설명 / firstAttack: 첫 공격까지 시간(초), 그다음부터는 cooldown마다
     // door: 공격 안 함. 체력이 줄수록 쿨타임 바가 차고, 체력이 다 닳고 fuse초 뒤에 터지며 blast 피해 (카운터로만 완전히 막음)
@@ -665,6 +690,9 @@ const CHAPTERS = [
       },
       {
         name: '보석바나나신라면섭취우현', img: 'assets/chapters/ch3/ramen_boss.png', hp: 10000, cooldown: 1, boss: true,
+        bgm: 'assets/chapters/ch3/sounds/Loki Green Theme.mp3',   // 보스 브금 (착지하는 순간부터)
+        noSkillName: true,   // 패턴 쓸 때 스킬 이름을 띄우지 않음
+        bossIntro: true,   // 등장 연출 (배경 어두워짐 → 하늘에서 떨어짐 → BOSS 타이틀) + 위쪽 큰 보스 체력바, 이후 배경은 완전 검정
         evade: 1,   // 회피 100% → 기절했을 때만 맞음
         armor: 500,          // 방어구: 체력보다 먼저 깎임. 방어구가 남아 있는 동안은 회피 안 함
         reflectTaken: 0.25,  // 카운터 반사 피해를 25%만 받음 (75% 감소)
@@ -688,6 +716,7 @@ const CHAPTERS = [
     requires: 'ch2',
     next: 'ch3',
     reward: 'saber',
+    hpReward: 100,     // 처음 깨면 최대 체력 +100
     name: 'gifs (AI 제작)',
     background: S3 + 'background.jpg',
     thumb: S3 + 'ad_2.jpg',
@@ -805,6 +834,17 @@ function spring(o, k, vk, stiff, damp, dt) { o[vk] += (-stiff * o[k] - damp * o[
    오디오 (Web Audio로 직접 합성)
    ===================================================================== */
 let actx = null, master = null, revIn = null, noiseBuf = null, distCurve = null, muted = false;
+// 볼륨 (0~1, 설정 → 볼륨 탭). 실제 크기 = 마스터 × 종류별
+const VOLS = [['master', '마스터'], ['bgm', '배경음악'], ['weapon', '무기 효과음', '휘두르기 · 타격 · 가드 · 카운터'], ['fx', '기타 효과음', '적 공격 · 연출 · 알림']];
+const vol = { master: 1, bgm: 1, weapon: 1, fx: 1 };
+const volOf = cat => vol.master * (vol[cat] == null ? 1 : vol[cat]);
+let buses = null, sfxCat = 'fx';
+// 이 안에서 나는 소리는 무기 효과음으로 침 (합성음 · 파일 둘 다)
+function weaponSound(f) { const prev = sfxCat; sfxCat = 'weapon'; try { f(); } finally { sfxCat = prev; } }
+function applyVolumes() {
+  if (master) master.gain.value = muted ? 0 : 0.9 * vol.master;
+  if (buses) { buses.weapon.gain.value = vol.weapon; buses.fx.gain.value = vol.fx; }
+}
 
 function initAudio() {
   if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
@@ -816,6 +856,9 @@ function initAudio() {
   comp.attack.value = 0.001; comp.release.value = 0.12;
   master = actx.createGain(); master.gain.value = muted ? 0 : 0.9;
   master.connect(comp); comp.connect(actx.destination);
+  buses = { weapon: actx.createGain(), fx: actx.createGain() };
+  buses.weapon.connect(master); buses.fx.connect(master);
+  applyVolumes();
 
   const len = actx.sampleRate * 2;
   noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
@@ -839,8 +882,9 @@ function initAudio() {
 function route(node, rev, dist) {
   let n = node;
   if (dist) { const ws = actx.createWaveShaper(); ws.curve = distCurve; ws.oversample = '2x'; n.connect(ws); n = ws; }
-  n.connect(master);
-  if (rev) { const s = actx.createGain(); s.gain.value = rev; n.connect(s); s.connect(revIn); }
+  const bus = buses[sfxCat] || buses.fx;
+  n.connect(bus);
+  if (rev) { const s = actx.createGain(); s.gain.value = rev * bus.gain.value; n.connect(s); s.connect(revIn); }   // 울림도 같은 볼륨으로
 }
 function tone(t, o) {
   const osc = actx.createOscillator(); osc.type = o.type || 'sine';
@@ -868,7 +912,7 @@ function noise(t, o) {
 
 function setMuted(m) {
   muted = m;
-  if (master) master.gain.value = muted ? 0 : 0.9;
+  applyVolumes();
   for (const a of Object.values(loopAudio)) a.muted = muted;
   saveGame();
   renderSettings();
@@ -1175,10 +1219,11 @@ try {
   if (WEAPONS[sv.equipped] && sv.equipped !== 'godfist') player.equipped = sv.equipped;
   if (Array.isArray(sv.cleared)) player.cleared = sv.cleared;
   if (typeof sv.muted === 'boolean') muted = sv.muted;
+  if (sv.vol) for (const k in vol) if (typeof sv.vol[k] === 'number') vol[k] = Math.min(1, Math.max(0, sv.vol[k]));
   // godmode는 저장하지 않음: 새로고침하면 꺼짐 (예전 세이브에 남은 god 값도 무시)
 } catch (e) {}
 function saveGame() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ weapons: player.weapons, equipped: player.equipped, cleared: player.cleared, muted })); } catch (e) {}
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ weapons: player.weapons, equipped: player.equipped, cleared: player.cleared, muted, vol })); } catch (e) {}
 }
 const isCleared = id => player.cleared.includes(id);
 const isUnlocked = ch => !ch.requires || isCleared(ch.requires) || isCleared(ch.id);   // 이미 깬 챕터는 계속 열려 있음
@@ -1262,8 +1307,9 @@ function startChapter(i, cp) {
   const ch = chapter();
   hueCache.clear();   // 이전 챕터에서 칠해 둔 색 바뀜 이미지는 메모리에서 비움
   G.enemies = ch.enemies.map(makeEnemy); G.idx = cp ? cp.idx : 0;
+  for (const d of ch.enemies) if (d.bgm) bgmAudio(d.bgm).load();
   player.heals = cp ? { ...cp.heals } : healKit();
-  G.checkpoint = cp || null; G.itemShown = false; G.unlocks = []; G.newHeals = null;
+  G.checkpoint = cp || null; G.cineFast = !!cp; G.cine = null; G.itemShown = false; G.unlocks = []; G.newHeals = null;
   Object.assign(P, { hp: maxHp(), guarding: false, guardT: 0, guardCd: 0, guardCdMax: 1, bonus: 0, atkT: 99, flinch: 0, vflinch: 0, counterT: 0, counterCd: 0, poseT: 0 });
   RHs.state = 'idle'; LHs.state = 'idle';
   parts.length = 0; texts.length = 0; notes.length = 0; buffered = null;
@@ -1285,6 +1331,7 @@ function announceEnemy(en) {
   const ch = chapter(), cpHere = ch.bossRetry && (en.def.boss || (ch.midRetry && en.def.midboss));
   if (cpHere && (!G.checkpoint || G.checkpoint.idx < G.idx)) G.checkpoint = { idx: G.idx, heals: { ...player.heals }, label: en.def.boss ? '보스전부터 다시' : '중간 보스부터 다시' };
   resetCursor(); discordPost(en);
+  if (en.def.bossIntro) { startBossCine(en, G.cineFast); G.cineFast = false; return; }
   if (en.def.boss) { setBanner('BOSS', en.def.name, '#ff3b3b', t, hint); SFX.boss(); }
   else if (en.def.midboss) { setBanner('MID BOSS', en.def.name, '#ff9a3c', t, hint); SFX.boss(); }
   else setBanner(en.def.name, '', '#ffd0e8', t, hint);
@@ -1569,7 +1616,7 @@ function tryAttack(x, y) {
    bell : 벨 소리가 끝날 때까지 대기
    bus  : bus_break_sound_1 재생 동안 버스가 왼쪽에서 달려옴 (소리 끝 = 충돌)
    crash: bus_break_sound_2 + 충돌 데미지 + 버스 폭발                                */
-function ultAudio(src) { preloadSounds([src]); const a = sfxFiles[src]; a.currentTime = 0; a.muted = muted; a.volume = 1; a.play().catch(() => {}); return a; }
+function ultAudio(src) { preloadSounds([src]); const a = sfxFiles[src]; a.currentTime = 0; a.muted = muted; a.volume = volOf('weapon'); a.play().catch(() => {}); return a; }
 function startUlt() {
   const u = weapon().ult;
   G.ult = { def: u, phase: 'press', t: 0, audio: null, belled: false, busX: -9999, shake: 0 };
@@ -1654,7 +1701,8 @@ function doPunch(x, y) {
   RHs.side = weapon().dual && RHs.side === 'R' ? 'L' : 'R';   // 양손 무기: 오른손 → 왼손 번갈아
   RHs.state = 'punch'; RHs.t = 0; RHs.hit = false; RHs.tx = x; RHs.ty = y;
   P.poseT = 0;
-  SFX.whoosh();
+  const ws = weapon().swingSounds;
+  weaponSound(() => { if (ws) playRandom(ws); else SFX.whoosh(); });
 }
 
 function guardPress() {
@@ -1669,7 +1717,7 @@ function guardPress() {
   P.guarding = true; P.guardT = 0;
   LHs.state = 'guard'; LHs.t = 0;
   buffered = null;
-  SFX.guardUp();
+  weaponSound(() => SFX.guardUp());
 }
 function counterPress() {
   const c = weapon().counter;
@@ -1681,21 +1729,24 @@ function counterPress() {
   }
   P.counterT = c.window; P.poseT = c.window;   // 자세가 보이는 동안 = 카운터 판정 시간
   buffered = null;
-  SFX.guardUp();
+  weaponSound(() => SFX.guardUp());
 }
 // 카운터 성공: 이번 공격 무효 + 받은 피해의 reflect%를 적에게 되돌려줌, 쿨타임 없이 바로 재사용
 // 효과음 파일 여러 개 중 하나를 랜덤으로 (직전에 나온 건 피함). 미리 불러둬서 바로 재생
 const sfxFiles = {};
 let lastRandom = null;
 function preloadSounds(list) { for (const src of list) if (!sfxFiles[src]) { sfxFiles[src] = new Audio(encodeURI(src)); sfxFiles[src].preload = 'auto'; } }
+function playSound(src, v = 0.9) {
+  preloadSounds([src]);
+  const a = sfxFiles[src].cloneNode();   // 연속으로 나도 소리가 겹쳐서 끊기지 않게
+  a.muted = muted; a.volume = Math.min(1, v * volOf(sfxCat));
+  a.play().catch(() => {});
+}
 function playRandom(list) {
-  preloadSounds(list);
   let src = pick(list);
   if (list.length > 1) while (src === lastRandom) src = pick(list);
   lastRandom = src;
-  const a = sfxFiles[src].cloneNode();   // 연속 카운터 때 소리가 겹쳐도 끊기지 않게
-  a.muted = muted; a.volume = 0.9;
-  a.play().catch(() => {});
+  playSound(src);
 }
 
 function counterSuccess(raw) {
@@ -1703,8 +1754,7 @@ function counterSuccess(raw) {
   if (!c.keep) { P.counterT = 0; P.poseT = c.window; } P.counterCd = 0;   // 튕겨낸 순간 자세를 잠깐 보여줌 (히트스톱 동안 멈춰 보임)
   G.hitStop = Math.max(G.hitStop, 0.13);
   addShake(0.45); cam.vkz += 1.4; G.blockT = 1;
-  if (c.sounds && c.sounds.length) playRandom(c.sounds);
-  else SFX.counter();
+  weaponSound(() => { if (c.sounds && c.sounds.length) playRandom(c.sounds); else SFX.counter(); });
   const fx = W * 0.62, fy = H * 0.3;
   addPart({ t: 'flash', x: fx, y: fy, r: 260, life: 0, max: 0.16, blue: true });
   addPart({ t: 'ring', x: fx, y: fy, r0: 30, r1: 300, w: 12, life: 0, max: 0.3, color: '150,220,255', a: 1 });
@@ -1749,7 +1799,7 @@ function hurtPlayer(raw, tick = false, sfx = true, noCounter = false) {
     const gp = guardFxPoint();
     if (tick) {
       G.blockT = Math.max(G.blockT, 0.5); addShake(0.05); LHs.shakeT = 0.08;
-      if (sfx) SFX.block();
+      if (sfx) weaponSound(() => SFX.block());
       texts.push({ str: `-${fmt(taken)}`, x: gp.x + rand(-40, 40), y: gp.y - 40, vx: 0, vy: -90, size: 26, life: 0, max: 0.5, rot: 0, c1: '#ffffff', c2: '#7ad7ff' });
       P.hp = Math.max(0, P.hp - taken); G.taken += taken;
       if (P.hp <= 0) playerDown();
@@ -1765,7 +1815,7 @@ function hurtPlayer(raw, tick = false, sfx = true, noCounter = false) {
     }
     texts.push({ str: `막음! -${fmt(taken)}`, x: gp.x, y: gp.y - 60, vx: 0, vy: -60, size: 40, life: 0, max: 0.8, rot: -0.08, c1: '#ffffff', c2: '#7ad7ff' });
     if (gain > 0) texts.push({ str: `반격 +${fmt(gain)}`, x: W - 300, y: H * 0.45, vx: 0, vy: -50, size: 34, life: 0, max: 0.9, rot: 0, c1: '#fff27a', c2: '#ff7a1a' });
-    SFX.block();
+    weaponSound(() => SFX.block());
   } else if (tick) {
     G.hurtT = Math.max(G.hurtT, 0.45); G.combo = 0;
     addShake(0.08); P.vflinch += 120;
@@ -1847,7 +1897,7 @@ function hitWp(b, x, y) {
   b.hp -= dmg; b.flash = 1; b.shake = 0.15;
   G.hitStop = Math.max(G.hitStop, 0.05); addShake(0.15);
   impactFx(x, y, false);
-  if (w.hitSound === 'whack') SFX.whack(); else SFX.jab(G.combo);
+  weaponSound(() => { if (w.hitSound === 'whack') SFX.whack(); else SFX.jab(G.combo); });
   if (b.hp <= 0) {
     bullets.splice(bullets.indexOf(b), 1);
     for (let i = 0; i < 18; i++) addPart({ t: 'chip', x: b.x, y: b.y, vx: rand(-700, 700), vy: rand(-900, -200), rot: rand(0, TAU), vr: rand(-20, 20), size: rand(8, 18), color: pick(['#39c5bb', '#86e0d8', '#333a40', '#ffffff']), life: 0, max: rand(0.6, 1.0) });
@@ -2193,7 +2243,8 @@ function startPattern(en) {
   en.lastPat = name;
   en.pat = { name, t: 0 };
   PATTERNS[name].start(en.pat, en);
-  texts.push({ str: PATTERNS[name].label + '!', x: W / 2, y: Math.max(50, EY - E / 2 - BARS_H - 34), vx: 0, vy: -30, size: 52, life: 0, max: 1.1, rot: 0, c1: '#ffffff', c2: '#ffd23a' });
+  const ly = en.def.bossIntro ? EY - E / 2 + 50 : Math.max(50, EY - E / 2 - BARS_H - 34);   // 큰 보스 타이틀이 있으면 그 아래 (이미지 위쪽)
+  if (!en.def.noSkillName) texts.push({ str: PATTERNS[name].label + '!', x: W / 2, y: ly, vx: 0, vy: -30, size: 52, life: 0, max: 1.1, rot: 0, c1: '#ffffff', c2: '#ffd23a' });
 }
 function updatePattern(en, dt) {
   const p = en.pat, P_ = PATTERNS[p.name];
@@ -3304,6 +3355,9 @@ function drawEnemyTop() {
 
 /* ---------- 새 효과음 ---------- */
 Object.assign(SFX, {
+  rumble() { if (!actx) return; const t = actx.currentTime; noise(t, { type: 'lowpass', freq: 160, freqEnd: 90, q: 0.7, dur: 1.4, gain: 0.55, attack: 0.5 }); tone(t, { type: 'sine', f0: 48, f1: 38, dur: 1.4, gain: 0.35, attack: 0.5 }); },
+  fall() { if (!actx) return; const t = actx.currentTime; noise(t, { type: 'bandpass', freq: 600, freqEnd: 2600, q: 1.2, dur: 0.7, gain: 0.3, attack: 0.3 }); tone(t, { type: 'sawtooth', f0: 900, f1: 180, dur: 0.7, gain: 0.05 }); },
+  gong() { if (!actx) return; const t = actx.currentTime; tone(t, { type: 'sine', f0: 110, f1: 104, dur: 2.2, gain: 0.5, rev: 0.8 }); tone(t, { type: 'triangle', f0: 220, f1: 214, dur: 1.6, gain: 0.18, rev: 0.8 }); noise(t, { type: 'lowpass', freq: 900, freqEnd: 200, dur: 0.4, gain: 0.3 }); },
   kick() { if (!actx) return; const t = actx.currentTime; tone(t, { type: 'sine', f0: 150, f1: 45, dur: 0.12, gain: 0.5 }); noise(t, { type: 'highpass', freq: 6000, dur: 0.02, gain: 0.07 }); },
   slash() { if (!actx) return; const t = actx.currentTime; noise(t, { type: 'bandpass', freq: 2500, freqEnd: 6500, q: 2, dur: 0.09, gain: 0.5, attack: 0.004 }); tone(t, { type: 'sawtooth', f0: 900, f1: 1900, dur: 0.07, gain: 0.07 }); },
   cut() { if (!actx) return; const t = actx.currentTime; noise(t, { type: 'highpass', freq: 1500, dur: 0.05, gain: 0.35 }); tone(t, { type: 'square', f0: 80, f1: 60, dur: 0.05, gain: 0.1 }); },
@@ -3323,7 +3377,10 @@ function playerDown() {
   G.state = 'dead'; G.endT = 1.8; notes.length = 0; clearBullets(); resetCursor();
   for (const en of G.enemies) { en.fireT = 0; en.burstLeft = 0; }
   if (P.guarding) endGuard();
-  setBanner('K.O.', '쓰러졌다…', '#ff3b3b', 1.8);
+  const en = curEnemy();
+  const bossKo = en && en.def.bossIntro;   // 보스전 테마: 보스 체력바 같은 검붉은 빨강 단색
+  setBanner('K.O.', '쓰러졌다…', bossKo ? '#c20000' : '#ff3b3b', 1.8);
+  if (bossKo) G.banner.solid = true;
 }
 
 /* =====================================================================
@@ -3432,7 +3489,7 @@ function hitEnemy(en, x, y) {
 
   // 4) 이펙트 / 사운드 / 글자
   impactFx(x, y, counter);
-  if (counter) SFX.heavy(); else if (w.hitSound === 'whack') SFX.whack(); else if (w.hitSound === 'saber') { SFX.slash(); SFX.jab(G.combo); } else SFX.jab(G.combo);
+  weaponSound(() => { if (counter) SFX.heavy(); else if (w.hitSound === 'whack') SFX.whack(); else if (w.hitSound === 'saber') { SFX.slash(); SFX.jab(G.combo); } else SFX.jab(G.combo); });
   if (onBeat) { SFX.kick(); texts.push({ str: 'PERFECT ×2', x: x + rand(-20, 20), y: y - 120, vx: 0, vy: -60, size: 48, life: 0, max: 0.6, rot: rand(-0.1, 0.1), c1: '#ffffff', c2: '#ff2d55' }); }
   texts.push({
     str: fmt(dmg), x: x + rand(-30, 30), y: y - 20, vx: rand(-120, 120), vy: rand(-520, -380), grav: 1200,
@@ -3565,6 +3622,8 @@ function update(dt, rdt) {
   if (G.state === 'intro') {
     G.introT -= rdt;
     if (G.introT <= 0) announceEnemy(curEnemy());
+  } else if (G.state === 'cine') {   // 보스 등장 연출
+    updateCine(rdt);
   } else if (G.state === 'announce') {   // 적 이름이 지나간 뒤에 싸움 시작
     G.introT -= rdt;
     if (G.introT <= 0) G.state = 'fight';
@@ -3583,15 +3642,47 @@ function updateLoopSound() {
   const en = curEnemy();
   let want = null;
   if (!G.paused && G.state === 'fight' && en && en.state === 'fight' && en.def.chargeSound && en.lungeT < 0 && en.burstLeft === 0) want = en.def.chargeSound;
+  if (loopPlaying) loopAudio[loopPlaying].volume = 0.8 * volOf('fx');
   if (want === loopPlaying) return;
   if (loopPlaying) loopAudio[loopPlaying].pause();
   loopPlaying = want;
   if (want) {
     const a = loopAudio[want] || (loopAudio[want] = Object.assign(new Audio(encodeURI(want)), { loop: true, volume: 0.8 }));
-    a.muted = muted;
+    a.muted = muted; a.volume = 0.8 * volOf('fx');
     a.currentTime = 0;
     a.play().catch(() => {});
   }
+}
+
+// 보스 브금 (def.bgm): 보스가 착지하는 순간부터 보스전 내내 반복 재생 (2페이즈 전환 중에도 계속)
+// 일시정지 · 인벤토리 중엔 멈췄다가 이어서 재생. 보스를 쓰러뜨리거나 KO · 타이틀로 나가면 서서히 꺼지고, 다음엔 처음부터
+const BGM_FADE = 1.2;
+const bgmVol = () => 0.6 * volOf('bgm');
+const bgm = { src: null, a: null, fading: [] };
+function bgmAudio(src) { return loopAudio[src] || (loopAudio[src] = Object.assign(new Audio(encodeURI(src)), { loop: true, preload: 'auto', muted })); }
+function updateBgm(rdt) {
+  const en = curEnemy();
+  const on = en && en.def.bgm && en.state !== 'escape'
+    && (G.state === 'fight' || G.state === 'announce' || (G.state === 'cine' && G.cine && G.cine.landed));
+  const src = on ? en.def.bgm : null;
+  if (src !== bgm.src) {
+    if (bgm.a) { bgm.a.fadeFrom = bgm.a.volume; bgm.fading.push(bgm.a); }
+    bgm.src = src; bgm.a = null;
+    if (src) {
+      const a = bgmAudio(src);
+      bgm.fading = bgm.fading.filter(f => f !== a);
+      a.currentTime = 0; a.volume = bgmVol(); bgm.a = a;
+    }
+  }
+  for (const f of bgm.fading) {
+    f.volume = Math.max(0, f.volume - rdt * (f.fadeFrom || 1) / BGM_FADE);
+    if (f.volume <= 0) { f.pause(); f.currentTime = 0; }
+  }
+  bgm.fading = bgm.fading.filter(f => f.volume > 0);
+  const a = bgm.a; if (!a) return;
+  a.volume = bgmVol();   // 설정에서 바꾸면 바로 반영
+  if (G.paused) { if (!a.paused) a.pause(); }
+  else if (a.paused) { a.muted = muted; a.play().catch(() => {}); }
 }
 
 let last = performance.now();
@@ -3603,6 +3694,7 @@ function frame(now) {
     update(gdt, rdt);
   }
   updateLoopSound();
+  updateBgm(rdt);
   watchPerf(rdt);
   if (G.state !== 'menu') render();   // 타이틀 화면은 캔버스를 완전히 덮으니 그리지 않음
   requestAnimationFrame(frame);
@@ -3637,6 +3729,8 @@ function render() {
   ctx.save(); applyCam();
   const bg = bgFor(chapter().background);
   if (bg) ctx.drawImage(bg, -60, -60, W + 120, H + 120);
+  const dk = sceneDark();   // 보스 등장 연출: 배경이 어두워지다가 완전 검정
+  if (dk > 0) { ctx.fillStyle = `rgba(0,0,0,${dk})`; ctx.fillRect(-60, -60, W + 120, H + 120); }
   if (G.state !== 'menu') { drawEnemies(); drawBus(); }
   ctx.restore();
 
@@ -3648,6 +3742,8 @@ function render() {
   drawBullets();
   drawEnemyTop();
 
+  drawCineTitle();
+  drawBossBar();
   drawScreenFx();
   drawHUD();
   drawDiscord();
@@ -3661,14 +3757,152 @@ function render() {
   }
 }
 
+
+/* ---------- 보스 등장 연출 + 큰 보스 타이틀 체력바 (def.bossIntro) ----------
+   배경만 보임 → 배경이 50%까지 어두워짐 → 보스가 하늘에서 떨어져 착지 → 배경 완전 검정
+   → 화면 가운데 "BOSS + 이름 + 체력바" (체력바가 차오름) → 위로 올라가며 작아져서 그대로 보스 체력바가 됨 */
+const EXPLOSION_SOUND = 'assets/sounds/explosion_sound.MP3';
+const CINE = { dimAt: 1.0, dimEnd: 2.2, fallAt: 2.2, landAt: 2.9, blackEnd: 3.4, move: 0.9 };
+function cineTimes(c) {
+  const titleAt = CINE.blackEnd, moveAt = titleAt + (c.fast ? 1.2 : 3);   // 보스전부터 다시 할 땐 짧게
+  return { ...CINE, titleAt, moveAt, end: moveAt + CINE.move };
+}
+function startBossCine(en, fast) {
+  G.state = 'cine'; G.banner = null; buffered = null;
+  G.cine = { t: fast ? CINE.fallAt : 0, fast, en, dimmed: fast, fell: false, landed: false, titled: false };
+}
+function updateCine(rdt) {
+  const c = G.cine, T = cineTimes(c), t0 = c.t;
+  c.t += rdt;
+  const en = c.en;
+  if (!c.dimmed && c.t >= T.dimAt) { c.dimmed = true; SFX.rumble(); }
+  if (!c.fell && c.t >= T.fallAt) { c.fell = true; SFX.fall(); }
+  if (!c.landed && c.t >= T.landAt) {   // 쿵!
+    c.landed = true; en.landed = true;
+    addShake(1); cam.vky += 420; cam.vkz += 1.2; en.vsq += 9; en.vsc -= 1.5;
+    for (let i = 0; i < 40; i++) addPart({ t: 'dust', x: EX + rand(-E * 0.55, E * 0.55), y: EY + E / 2 - rand(0, 20), vx: rand(-700, 700), vy: rand(-260, -40), r: rand(16, 36), life: 0, max: rand(0.5, 0.9) });
+    addPart({ t: 'ring', x: EX, y: EY + E / 2, r0: 40, r1: W * 0.6, w: 18, life: 0, max: 0.5, color: '255,255,255', a: 0.7 });
+    playSound(EXPLOSION_SOUND, 1);
+  }
+  if (!c.titled && c.t >= T.titleAt) { c.titled = true; SFX.boss(); SFX.gong(); }
+  if (c.t >= T.end) { G.state = 'fight'; G.cine = null; }
+}
+// 배경 어둡기 (0~1): 연출 중엔 시간에 따라, 끝난 뒤 보스전 내내 1 (완전 검정)
+function sceneDark() {
+  const en = curEnemy();
+  if (!en || !en.def.bossIntro || G.state === 'intro' || G.state === 'menu') return 0;
+  if (G.state !== 'cine' || !G.cine) return 1;
+  const t = G.cine.t, T = CINE;
+  if (t < T.dimAt) return 0;
+  if (t < T.dimEnd) return 0.5 * (t - T.dimAt) / (T.dimEnd - T.dimAt);
+  if (t < T.landAt) return 0.5;
+  if (t < T.blackEnd) return lerp(0.5, 1, (t - T.landAt) / (T.blackEnd - T.landAt));
+  return 1;
+}
+// 연출 중 보스 위치: 떨어지기 전엔 안 보임(null), 떨어지는 중엔 위에서 점점 빨라지며 내려옴
+function cineDropY(en) {
+  const c = G.cine;
+  if (G.state !== 'cine' || !c || c.en !== en) return en.def.bossIntro && !en.landed ? null : 0;
+  if (c.t < CINE.fallAt) return null;
+  const q = clamp((c.t - CINE.fallAt) / (CINE.landAt - CINE.fallAt), 0, 1);
+  return -(EY + E / 2 + 30) * (1 - q * q);   // 화면 바로 위에서 시작해서 점점 빨라짐
+}
+
+// 보스 타이틀 (기준 크기 820 x 188, 가운데 위 기준)
+const BH = { w: 820, h: 188 };
+const BOSS_FONT = 'Elephant, "Bodoni MT Black", "Bodoni MT", Georgia, "Times New Roman", serif';
+function bossHeaderFinal() {   // 싸울 때 자리: 적 이미지 바로 위
+  const availH = Math.max(110, EY - E / 2 - 10);
+  const sc = clamp(Math.min(availH / BH.h, Math.max(E, W - 840) / BH.w), 0.35, 1);
+  return { s: sc, top: Math.max(4, EY - E / 2 - BH.h * sc - 6) };
+}
+function bossHeaderCenter() {
+  const sc = clamp(Math.min(W * 0.8 / BH.w, H * 0.38 / BH.h), 0.5, 1.4);
+  return { s: sc, top: H * 0.42 - BH.h * sc / 2 };
+}
+// 장식 소용돌이: 굵기가 점점 가늘어지는 곡선 (dir: -1 = 왼쪽으로 뻗음)
+function taperBezier(p, w0, w1) {
+  const N = 18, pt = t => { const u = 1 - t; return [u * u * u * p[0] + 3 * u * u * t * p[2] + 3 * u * t * t * p[4] + t * t * t * p[6], u * u * u * p[1] + 3 * u * u * t * p[3] + 3 * u * t * t * p[5] + t * t * t * p[7]]; };
+  let a = pt(0);
+  for (let i = 1; i <= N; i++) {
+    const b = pt(i / N);
+    ctx.lineWidth = lerp(w0, w1, i / N); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    a = b;
+  }
+}
+function drawFlourish(x0, dir) {
+  ctx.save(); ctx.translate(x0, 0); ctx.scale(dir, 1); ctx.lineCap = 'round'; ctx.shadowBlur = 0;   // 그림자는 조각마다 겹쳐서 줄무늬가 생김
+  taperBezier([0, 92, 30, 30, 140, 8, 205, 52], 15, 7);      // 큰 곡선
+  taperBezier([205, 52, 232, 78, 196, 98, 184, 74], 7, 3);  // 끝에서 말리는 부분
+  taperBezier([14, 98, 60, 60, 140, 44, 186, 70], 6, 2);    // 안쪽 가는 곡선
+  taperBezier([0, 92, -6, 104, -18, 104, -24, 96], 6, 2);   // 안쪽 꼬리
+  ctx.restore();
+}
+// en: 보스, sc·top: 크기·위치, alpha: 투명도, fill: 체력바 차오름(0~1)
+function drawBossHeader(en, sc, top, alpha = 1, fill = 1) {
+  const DARK = '#8f0606', RED = '#c20000', hp = en.def.hp;
+  ctx.save(); ctx.globalAlpha = alpha; ctx.translate(W / 2, top); ctx.scale(sc, sc);
+  ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 10;
+  ctx.font = `bold 112px ${BOSS_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = DARK; ctx.fillText('BOSS', 0, 104);
+  const tw = ctx.measureText('BOSS').width;
+  ctx.strokeStyle = DARK; drawFlourish(-tw / 2 - 16, -1); drawFlourish(tw / 2 + 16, 1);
+  // 이름 + 양옆 줄
+  const name = en.def.name;
+  ctx.font = fontStr(40); ctx.textBaseline = 'middle';
+  const nw = Math.min(ctx.measureText(name).width, 640), gapW = 400 - nw / 2 - 16;
+  ctx.fillStyle = DARK;
+  if (gapW > 0) { ctx.fillRect(-400, 128, gapW, 5); ctx.fillRect(nw / 2 + 16, 128, gapW, 5); }
+  ctx.fillStyle = RED; ctx.fillText(name, 0, 131, 640);
+  // 체력바
+  ctx.shadowBlur = 0;
+  const bx = -400, by = 150, bw = 800, bh = 36;
+  ctx.fillStyle = '#1c0000'; ctx.fillRect(bx - 3, by - 3, bw + 6, bh + 6);
+  ctx.fillStyle = '#3a0505'; ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = 'rgba(255,190,190,0.85)'; ctx.fillRect(bx, by, bw * clamp(en.hpChip / hp, 0, 1) * fill, bh);
+  const g = ctx.createLinearGradient(0, by, 0, by + bh); g.addColorStop(0, '#e00000'); g.addColorStop(1, '#9c0000');
+  ctx.fillStyle = g; ctx.fillRect(bx, by, bw * clamp(en.hp / hp, 0, 1) * fill, bh);
+  if (en.armor > 0 && en.def.armor) {   // 방어구: 체력바 위쪽 절반에 겹쳐서
+    const ag = ctx.createLinearGradient(0, by, 0, by + bh * 0.45); ag.addColorStop(0, '#dbe9ff'); ag.addColorStop(1, '#4f86e8');
+    ctx.fillStyle = ag; ctx.fillRect(bx, by, bw * clamp(en.armor / en.def.armor, 0, 1) * fill, bh * 0.45);
+  }
+  ctx.font = fontStr(18); ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = '#1a0000'; ctx.lineJoin = 'round';
+  const txt = `${fmt(Math.ceil(en.hp * fill))} / ${hp}`;
+  ctx.strokeText(txt, 0, by + bh / 2 + 1); ctx.fillStyle = '#ffe9e9'; ctx.fillText(txt, 0, by + bh / 2 + 1);
+  ctx.restore();
+}
+// 연출 중 타이틀: 가운데에 나타남 → 위로 올라가며 작아짐
+// 싸우는 중 보스 타이틀 체력바 (HUD 층)
+function drawBossBar() {
+  const en = curEnemy();
+  if (!en || !en.def.bossIntro || en.state === 'escape' || G.state === 'cine' || G.state === 'menu' || G.state === 'intro') return;
+  const f = bossHeaderFinal(); drawBossHeader(en, f.s, f.top);
+}
+function drawCineTitle() {
+  const c = G.cine; if (G.state !== 'cine' || !c) return;
+  const T = cineTimes(c); if (c.t < T.titleAt) return;
+  const A = bossHeaderCenter(), B = bossHeaderFinal(), m = clamp((c.t - T.moveAt) / CINE.move, 0, 1), e = m < 0.5 ? 2 * m * m : 1 - Math.pow(-2 * m + 2, 2) / 2;
+  const pop = clamp((c.t - T.titleAt) / 0.35, 0, 1), sc = lerp(A.s, B.s, e) * (m > 0 ? 1 : lerp(1.15, 1, easeOutCubic(pop)));
+  // 가운데 있을 땐 뒤에 검은 띠를 깔아서 보스 사진 위에서도 잘 보이게 (올라가면서 사라짐)
+  const bandA = pop * (1 - e) * 0.85;
+  if (bandA > 0) {
+    const t0 = lerp(A.top, B.top, e) - 30 * sc, h = (BH.h + 60) * sc, g = ctx.createLinearGradient(0, t0, 0, t0 + h);
+    const band = `rgba(0,0,0,${bandA})`;
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.18, band); g.addColorStop(0.82, band); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, t0, W, h);
+  }
+  drawBossHeader(c.en, sc, lerp(A.top, B.top, e), pop, clamp((c.t - T.titleAt - 0.3) / 1.0, 0, 1));
+}
 function drawEnemies() {
   const list = G.enemies, i = G.idx;
   const en = list[i];
   // 바로 뒤에 겹쳐 있는 다음 우현 (데칼코마니처럼 두 장으로 나뉠 땐 안 보이게)
-  if (list[i + 1] && !(en && en.def.mirror && en.state === 'fight')) ctx.drawImage(list[i + 1].img, EX - E / 2, EY - E / 2, E, E);
+  if (list[i + 1] && !list[i + 1].def.bossIntro && !(en && en.def.mirror && en.state === 'fight')) ctx.drawImage(list[i + 1].img, EX - E / 2, EY - E / 2, E, E);
   if (!en) return;
 
-  let x = enemyX(en) + en.escX, y = EY + en.escY;
+  const drop = cineDropY(en);   // 보스 등장: 떨어지기 전엔 안 보임
+  if (drop === null) return;
+  let x = enemyX(en) + en.escX, y = EY + en.escY + drop;
   if (en.run) y -= Math.abs(Math.sin(G.time * 16)) * 16 * en.run;   // 달려오는 중 덜컹덜컹
   if (en.shakeT > 0) { x += rand(-1, 1) * en.shakeA; y += rand(-1, 1) * en.shakeA; }
   const left = en.def.cooldown - en.cd;
@@ -3715,9 +3949,35 @@ function drawStun(en, x, y) {
   outlinedText(`기절! ${en.stunT.toFixed(1)}`, x, y + E * 0.36, 52, 'center', 'middle', '#ffffff', '#ffd23a');
 }
 
+// 상태 태그: 기절 / 방어구 / 회피 / 회복 중
+function statusTags(en) {
+  const tags = [];
+  if (en.stunT > 0) tags.push(['기절', '#d4a20a']);
+  else if (en.armor > 0) tags.push(['방어구', '#3d6fd6']);
+  else if (en.def.evade) tags.push([`회피 ${Math.round(en.def.evade * 100)}%`, '#5b6178']);
+  if (en.def.panic && bullets.some(b => b.k === 'wp')) tags.push(['회복 중', '#25a35a']);
+  return tags;
+}
+// 큰 보스 타이틀을 쓰는 보스: 상태 태그는 오른쪽 위 HUD 줄 아래에 오른쪽 정렬로
+function drawBossTags() {
+  const en = curEnemy();
+  if (!en || !en.def.bossIntro || en.state === 'escape' || cineDropY(en) === null) return;
+  const tags = statusTags(en), top = 90;
+  ctx.font = fontStr(16);
+  let tx = W - 20;
+  for (let i = tags.length - 1; i >= 0; i--) {
+    const [label, col] = tags[i], tw = ctx.measureText(label).width + 18;
+    tx -= tw;
+    ctx.fillStyle = col; rr(ctx, tx, top, tw, 24, 6); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, tx + tw / 2, top + 13);
+    tx -= 6;
+  }
+}
 function drawEnemyBars() {
   const en = curEnemy();
   if (!en || en.state === 'escape') return;
+  if (en.def.bossIntro) return;   // 큰 보스 타이틀은 drawBossBar()에서 (손보다 위)
   const x0 = EX - E / 2, top = EY - E / 2 - BARS_H + 2;
 
   // 이름
@@ -3727,10 +3987,7 @@ function drawEnemyBars() {
   const tags = [];
   if (en.def.boss) tags.push(['BOSS', '#ff2a3d']);
   if (en.def.midboss) tags.push(['중간 보스', '#ff8a1a']);
-  if (en.stunT > 0) tags.push(['기절', '#d4a20a']);
-  else if (en.armor > 0) tags.push(['방어구', '#3d6fd6']);
-  else if (en.def.evade) tags.push([`회피 ${Math.round(en.def.evade * 100)}%`, '#5b6178']);
-  if (en.def.panic && bullets.some(b => b.k === 'wp')) tags.push(['회복 중', '#25a35a']);
+  tags.push(...statusTags(en));
   for (const [label, col] of tags) {
     ctx.font = fontStr(16);
     const tw = ctx.measureText(label).width + 18;
@@ -4053,6 +4310,7 @@ function drawHUD() {
   ctx.fillText(`적 ${Math.min(G.idx + 1, G.enemies.length)} / ${G.enemies.length}   ·   무기: ${w.name} (공격력 ${w.damage})`, W - 20, 44);
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
   ctx.fillText(`I 인벤토리   ·   M ${muted ? '소리 켜기' : '소리 끄기'}`, W - 20, 66);
+  drawBossTags();
 
   // 콤보
   if (G.combo >= 3) {
@@ -4073,8 +4331,8 @@ function drawBanner() {
   ctx.globalAlpha = p > b.max - 0.35 ? Math.max(0, (b.max - p) / 0.35) : 1;
   ctx.translate(W / 2, H * 0.36); ctx.scale(sc, sc);
   const size = Math.min(W * 0.12, 110);
-  outlinedText(b.title, 0, 0, size, 'center', 'middle', '#ffffff', b.color);
-  if (b.sub) outlinedText(b.sub, 0, size * 0.85, size * 0.42, 'center', 'middle', '#ffffff', '#ffd0e8');
+  outlinedText(b.title, 0, 0, size, 'center', 'middle', b.solid ? b.color : '#ffffff', b.color);
+  if (b.sub) outlinedText(b.sub, 0, size * 0.85, size * 0.42, 'center', 'middle', b.solid ? '#b31212' : '#ffffff', b.solid ? '#b31212' : '#ffd0e8');
   if (b.hint) outlinedText(b.hint, 0, size * (b.sub ? 1.45 : 1.0), Math.min(size * 0.3, W / (b.hint.length * 1.1)), 'center', 'middle', '#ffffff', '#ffe27a');
   ctx.restore();
 }
@@ -4242,7 +4500,7 @@ function renderInv() {
   equipWeapon.onclick = () => { invUI.cat = 'weapon'; invUI.sel = weaponId(); renderInv(); };
 
   // 카테고리 탭
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.cat === invUI.cat));
+  document.querySelectorAll('#inv .tab').forEach(t => t.classList.toggle('on', t.dataset.cat === invUI.cat));
 
   // 가방
   const isW = invUI.cat === 'weapon';
@@ -4272,7 +4530,7 @@ function renderInv() {
 
   renderDetail();
 }
-document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => { invUI.cat = t.dataset.cat; invUI.sel = null; renderInv(); }));
+document.querySelectorAll('#inv .tab').forEach(t => t.addEventListener('click', () => { invUI.cat = t.dataset.cat; invUI.sel = null; renderInv(); }));
 
 function openInv(fromMenu = false) {
   invUI.menu = fromMenu;
@@ -4467,7 +4725,7 @@ menuEl.querySelectorAll('.mi').forEach(b => {
     if (act === 'start') { if (!loaded) { toast('이미지를 불러오는 중이에요'); return; } showChapters(); }
     else if (act === 'inv') { if (!loaded) { toast('이미지를 불러오는 중이에요'); return; } openInv(true); }
     else if (act === 'dev') devEl.classList.remove('hidden');
-    else if (act === 'settings') { renderSettings(); settingsEl.classList.remove('hidden'); }
+    else if (act === 'settings') { renderSettings(); setSettingsPage('general'); settingsEl.classList.remove('hidden'); }
     else if (act === 'quit') quitGame();
   });
 });
@@ -4484,7 +4742,31 @@ const soundBtn = document.getElementById('soundBtn'), cmdOut = document.getEleme
 function renderSettings() {
   soundBtn.textContent = muted ? 'OFF' : 'ON';
   soundBtn.classList.toggle('off', muted);
+  volNote.classList.toggle('hidden', !muted);
 }
+// 볼륨 탭: 슬라이더를 움직이면 바로 반영, 놓으면 저장하고 그 종류 소리를 한 번 들려줌
+const volPage = document.getElementById('volPage');
+volPage.innerHTML = VOLS.map(([k, name, sub]) => `<label class="vol-row"><span>${name}${sub ? `<small>${sub}</small>` : ''}</span><input type="range" min="0" max="100" step="1" data-vol="${k}"><b></b></label>`).join('')
+  + '<div class="vol-note hidden">지금 사운드가 꺼져 있어요 (일반 탭 · M 키)</div>';
+const volNote = volPage.querySelector('.vol-note');
+function renderVolumes() {
+  volPage.querySelectorAll('input[data-vol]').forEach(inp => { const v = Math.round(vol[inp.dataset.vol] * 100); inp.value = v; inp.nextElementSibling.textContent = v + '%'; });
+}
+volPage.querySelectorAll('input[data-vol]').forEach(inp => {
+  inp.addEventListener('input', () => { vol[inp.dataset.vol] = inp.value / 100; inp.nextElementSibling.textContent = inp.value + '%'; applyVolumes(); });
+  inp.addEventListener('change', () => {
+    saveGame(); initAudio();
+    const k = inp.dataset.vol;
+    if (k === 'weapon') weaponSound(() => SFX.whoosh());
+    else if (k !== 'bgm') SFX.ding();
+  });
+});
+function setSettingsPage(page) {
+  settingsEl.querySelectorAll('.set-tabs .tab').forEach(t => t.classList.toggle('on', t.dataset.page === page));
+  settingsEl.querySelectorAll('.set-page').forEach(p => p.classList.toggle('hidden', p.dataset.page !== page));
+  if (page === 'volume') renderVolumes();
+}
+settingsEl.querySelectorAll('.set-tabs .tab').forEach(t => t.addEventListener('click', () => setSettingsPage(t.dataset.page)));
 soundBtn.addEventListener('click', () => { initAudio(); setMuted(!muted); });
 document.getElementById('resetBtn').addEventListener('click', () => {
   if (!confirm('정말 초기화할까요?\n얻은 무기와 챕터 진행도가 모두 사라져요.')) return;
@@ -4569,7 +4851,7 @@ document.getElementById('cmdForm').addEventListener('submit', e => {
 cmdInput.addEventListener('keydown', e => e.stopPropagation());   // 입력 중엔 I/M/F 단축키 안 먹게
 
 // 일시정지 (전투 중 Esc)
-const canPause = () => ['intro', 'announce', 'fight'].includes(G.state);
+const canPause = () => ['intro', 'announce', 'cine', 'fight'].includes(G.state);
 function openPause() {
   if (!canPause() || G.paused) return;
   G.paused = true;
@@ -4587,7 +4869,7 @@ function closePause() {
 pauseEl.querySelectorAll('[data-pause]').forEach(b => b.addEventListener('click', () => {
   const act = b.dataset.pause;
   if (act === 'resume') closePause();
-  else if (act === 'settings') { pauseEl.classList.add('hidden'); renderSettings(); settingsEl.classList.remove('hidden'); }
+  else if (act === 'settings') { pauseEl.classList.add('hidden'); renderSettings(); setSettingsPage('general'); settingsEl.classList.remove('hidden'); }
   else if (act === 'menu') showMenu();
   else if (act === 'quit') quitGame();
 }));
@@ -4654,7 +4936,8 @@ window.addEventListener('contextmenu', e => { if (!itemGetEl.classList.contains(
 function showResult(win) {
   const t = G.time - G.startTime, ch = chapter(), i = G.chapter;
   const ni = ch.next ? CHAPTERS.findIndex(c => c.id === ch.next) : i + 1, hasNext = win && CHAPTERS[ni] && isUnlocked(CHAPTERS[ni]);
-  const cp = !win && G.checkpoint;
+  const cp = !win && G.checkpoint, boss = curEnemy();
+  ui.classList.toggle('boss-ko', !!(!win && boss && boss.def.bossIntro));   // 보스전 테마: 검붉은 빨강 + 검정 K.O. 화면
   panel.innerHTML = `
     <div class="title">${win ? 'CLEAR!' : 'K.O.'}</div>
     <div class="sub">${ch.label} · ${ch.name}${win ? '' : ' — 쓰러졌다'}</div>
@@ -4695,6 +4978,7 @@ for (const w of Object.values(WEAPONS)) {
   if (w.icon) needed.push(w.icon);
   for (const v of Object.values(w.sprites)) needed.push(...(Array.isArray(v) ? v.map(f => f.src) : [v]));
   if (w.counter) { if (w.counter.pose) needed.push(w.counter.pose); if (w.counter.sounds) preloadSounds(w.counter.sounds); }
+  if (w.swingSounds) preloadSounds(w.swingSounds);
   if (w.ult) { needed.push(w.ult.bus, ...w.ult.frames.map(f => f.src)); preloadSounds([w.ult.bellSound, w.ult.busSound, w.ult.crashSound]); }
 }
 needed.push(BERRY, WOOWP, ...Object.values(ANIM).map(a => a.sheet), ...ADS, ...CLIPS.map(c => c.img));
@@ -4702,6 +4986,7 @@ for (const ch of CHAPTERS) {
   needed.push(ch.background, ch.thumb);
   for (const en of ch.enemies) { needed.push(en.img); if (en.phase2) needed.push(en.phase2.img); }
 }
+preloadSounds([EXPLOSION_SOUND]);
 const loadMsg = document.getElementById('loadMsg');
 loadImages(needed, (d, n) => { loadMsg.textContent = `불러오는 중... ${d}/${n}`; }, () => {
   const missing = [...new Set(needed.filter(n => n && !IMG[n]))];
