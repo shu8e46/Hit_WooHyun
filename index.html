@@ -146,6 +146,28 @@
   .ability ul { margin: 0; padding-left: 18px; line-height: 1.7; color: #ddd; }
   .detail .act { width: 100%; margin-top: 12px; font-size: 18px; padding: 8px; }
   .wip { color: #ffb03c; font-size: 12px; }
+  /* 도감 */
+  .slot .dthumb { width: 62%; height: 62%; background: center / contain no-repeat; }
+  .slot .dthumb.sheet, .detail .dex-img.sheet { background-repeat: no-repeat; background-position: 0 0; }
+  .slot.unseen .dthumb, .slot.unseen img { filter: brightness(0) opacity(.45); }
+  .slot.unseen { cursor: pointer; color: #666; }
+  .slot .nm { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail .dex-img { width: 100%; height: 150px; background: #2d2540 center / contain no-repeat; border-radius: 8px; margin-bottom: 10px; }
+  .detail .dex-img.sheet { background-color: #2d2540; }
+  .detail .dex-img.unseen { filter: brightness(0) opacity(.5); }
+  .detail .badge.ch { background: #3a3150; color: #ddd; margin-left: 4px; }
+  .dex-box { margin-top: 10px; }
+  .dex-box.tips { border-color: #3ddc84; background: rgba(61, 220, 132, .07); }
+  .dex-box.tips h4 { color: #7cf0b0; }
+  .dex-box.pats { border-color: #ff5a5a; background: rgba(255, 60, 60, .07); }
+  .dex-box.pats h4 { color: #ff9a9a; }
+  .dex-box.pats li b { color: #ffd0d0; font-weight: bold; }
+  .dex-head { grid-column: 1 / -1; font-size: 13px; font-weight: bold; color: #ffd23a; padding: 6px 2px 0; border-bottom: 1px solid #2a2436; }
+  .dex-head:first-child { padding-top: 0; }
+  .dex-p2 { margin-top: 14px; padding-top: 12px; border-top: 2px dashed #3a3150; }
+  .dex-p2 h3 { margin: 0 0 8px; font-family: "Black Han Sans", sans-serif; font-weight: normal; font-size: 18px; color: #ff9a6b; }
+  .dex-p2 h3 small { font-family: "Malgun Gothic", sans-serif; font-size: 12px; color: #aaa; margin-left: 6px; }
+  .dex-p2 .unknown { color: #777; }
 
   /* 타이틀 화면 */
   .screen { position: fixed; inset: 0; z-index: 9; overflow: hidden; background: #000; }
@@ -388,6 +410,7 @@
         <div class="tabs">
           <button class="tab" data-cat="weapon">무기</button>
           <button class="tab" data-cat="heal">힐템</button>
+          <button class="tab" data-cat="dex">도감</button>
         </div>
         <div class="bag" id="bag"></div>
       </div>
@@ -1204,6 +1227,7 @@ const player = {
   weapons: [DEFAULT_WEAPON], equipped: null,      // equipped가 null이면 기본 주먹
   heals: {},                                      // 힐템 id → 개수 (챕터 시작할 때 healKit()으로 채움)
   cleared: [],                                    // 클리어한 챕터 id
+  seen: [],                                       // 한 번이라도 만난 적 이름 (도감)
   god: false,                                     // godmode (체력 1000000)
 };
 // 최대 체력 = 100 + 클리어한 챕터(튜토리얼 제외) 하나당 50
@@ -1218,14 +1242,199 @@ try {
   if (Array.isArray(sv.weapons)) player.weapons = [DEFAULT_WEAPON, ...sv.weapons.filter(id => WEAPONS[id] && id !== DEFAULT_WEAPON && id !== 'godfist')];
   if (WEAPONS[sv.equipped] && sv.equipped !== 'godfist') player.equipped = sv.equipped;
   if (Array.isArray(sv.cleared)) player.cleared = sv.cleared;
+  if (Array.isArray(sv.seen)) player.seen = sv.seen.filter(n => typeof n === 'string');
   if (typeof sv.muted === 'boolean') muted = sv.muted;
   if (sv.vol) for (const k in vol) if (typeof sv.vol[k] === 'number') vol[k] = Math.min(1, Math.max(0, sv.vol[k]));
   // godmode는 저장하지 않음: 새로고침하면 꺼짐 (예전 세이브에 남은 god 값도 무시)
 } catch (e) {}
 function saveGame() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ weapons: player.weapons, equipped: player.equipped, cleared: player.cleared, muted, vol })); } catch (e) {}
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ weapons: player.weapons, equipped: player.equipped, cleared: player.cleared, seen: player.seen, muted, vol })); } catch (e) {}
 }
 const isCleared = id => player.cleared.includes(id);
+
+// 도감: 한 번이라도 만난 적만 내용이 보임 (챕터를 깼으면 그 챕터 적은 전부 본 걸로 침)
+// type: 공격 방식 / dmg: 피해 표시를 직접 적을 때 / feat: 특징 / tips: 공략 / pats: 패턴 [이름, 피하는 법] / p2: 2페이즈
+const DEX = {
+  '연습용 우현': {
+    type: '박치기',
+    feat: ['튜토리얼 연습 상대', '튜토리얼 마지막 단계 전엔 쓰러지지 않음'],
+    tips: ['공격 0.7초 전에 빨갛게 번쩍이면 우클릭을 꾹 눌러서 가드', '막은 직후에 때리면 반격 보너스가 붙음'],
+  },
+  'Sleeping 우현': { type: '박치기', feat: ['챕터 1 첫 상대. 공격이 느림'], tips: ['빨갛게 번쩍이면 가드'] },
+  'Wake Up 우현': { type: '박치기', feat: ['공격 간격이 3초로 짧음'], tips: ['때리다가도 빨개지면 바로 가드로 바꾸기'] },
+  'Standing 우현': { type: '박치기', feat: ['한 방이 아픔'], tips: ['꼭 막고 반격하기'] },
+  'OPERA 우현': {
+    type: '음표 날리기',
+    feat: ['챕터 1 보스', '노래하면서 음표 5개를 연달아 날림'],
+    tips: ['음표가 날아오는 동안 가드를 계속 누르고 있기', '음표가 다 터진 다음에 반격'],
+  },
+
+  '버스 기다리는 우현': { type: '박치기', feat: ['평범하게 버스를 기다리는 우현'], tips: ['빨개지면 가드'] },
+  '버스 놓친 우현': {
+    type: '돌격',
+    feat: ['쿨타임이 찰수록 달려와서 점점 커짐 (뛰는 소리)', '다 오면 몸통 박치기'],
+    tips: ['화면을 꽉 채울 만큼 커지면 가드'],
+  },
+  '멀미하는 우현': { type: '2연타', feat: ['버스처럼 좌우로 흔들림'], tips: ['흔들리는 몸을 따라가며 때리기', '2번 연속으로 들어오니 가드를 조금 길게'] },
+  '꾸벅꾸벅 우현': { type: '박치기', feat: ['1.5초 동안 안 맞으면 졸면서 초당 20 회복'], tips: ['쉬지 말고 계속 때리기'] },
+  '후드 쓴 우현': { type: '3연타', feat: ['챕터 1 외전 중간 보스', '20% 확률로 주먹을 피함'], tips: ['3번 연속 공격이 끝날 때까지 가드 유지'] },
+  '드르렁 우현': {
+    type: '글자 날리기',
+    feat: ['"Zz", "드르렁" 글자 4개를 날림', '2초 동안 안 맞으면 초당 10 회복'],
+    tips: ['글자가 날아오면 가드', '회복 못 하게 계속 때리기'],
+  },
+  '종점까지 간 우현': {
+    type: '글자 날리기',
+    feat: ['챕터 1 외전 보스', '코골이 글자 6개를 날림', '2.5초 동안 안 맞으면 초당 15 회복'],
+    tips: ['글자는 가드로 막고 바로 다시 때리기'],
+    p2: {
+      type: '돌격 2연타',
+      feat: ['알람 듣고 벌떡 일어나서 흔들리며 달려옴', '더 이상 회복하지 않음'],
+      tips: ['달려와서 커지면 가드. 2번 연속으로 들어옴'],
+    },
+  },
+
+  'Runing 우현': { type: '돌격', feat: ['쿨타임 동안 달려오면서 커짐 (뛰는 소리)'], tips: ['다 달려오면 가드'] },
+  '우현 & 강지환': { type: '박치기', feat: ['한 방이 셈', '10% 확률로 피함'], tips: ['공격 간격(6초)이 기니까 그 사이에 몰아서 때리기'] },
+  'Twinhead 지우현': { type: '2연타', feat: ['챕터 2 중간 보스', '머리 둘이 번갈아 박음'], tips: ['2번 다 막을 때까지 가드 유지'] },
+  '이거이름뭐로하지우현': { type: '박치기', feat: ['50% 확률로 주먹을 피함'], tips: ['반은 피하니 많이 때리기. 연타가 빠른 무기가 유리'] },
+  '특수폭행 우현': { type: '3연타', feat: ['약한 공격을 3번 연속', '공격 간격이 김 (7초)'], tips: ['3연타 동안 가드 유지'] },
+  '고추먹고맴맴 우현': {
+    type: '불 뿜기',
+    feat: ['챕터 2 보스', '2초 동안 불을 뿜어서 피해를 나눠 넣음'],
+    tips: ['불 뿜는 내내 가드 유지 (가드 최대 유지 시간 주의)'],
+  },
+
+  '호잇호잇 우현': { type: '글자 날리기', feat: ['"호잇" 글자 3개를 날림'], tips: ['날아오면 가드'] },
+  '턱주가리 우현': {
+    type: '깨물기',
+    feat: ['"아~~" 하고 입을 벌리면 얼굴이 빨개짐', '0.85초 뒤에 콱! 그때 커서가 얼굴 위에 있으면 물림'],
+    tips: ['빨개지면 커서를 얼굴 밖으로 빼기', '입을 다물고 나면 다시 때리기'],
+  },
+  '흔들흔들 우현': {
+    type: '글자 날리기 + 바람',
+    feat: ['멀리 있는 우현만 맞음', '선풍기 바람이 커서를 밀어냄', '선풍기를 때리면 강풍이 붐'],
+    tips: ['선풍기는 때리지 말고 우현만 노리기', '바람 반대쪽으로 버티면서 조준'],
+  },
+  '2세대 무지개우현': {
+    type: '범위 공격 (파동)', dmg: '12 (고리 하나)',
+    feat: ['무지개 고리가 둥글게 퍼져 나옴', '고리마다 빈틈이 하나 있음'],
+    tips: ['고리가 커서에 닿기 전에 빈틈 쪽으로 커서 옮기기'],
+    p2: { type: '범위 공격 (파동)', dmg: '12 (고리 하나)', feat: ['더 빠르고 촘촘한 고리 7개'], tips: ['빈틈이 좁으니 미리 움직이기'] },
+  },
+  '데칼코마니 우현': {
+    type: '2연타',
+    feat: ['챕터 2 외전 중간 보스', '진짜와 거울(반짝이는 쪽) 두 장', '거울을 때리면 내가 8 반사 피해', '진짜를 몇 번 맞으면 자리가 섞임'],
+    tips: ['반짝이지 않는 쪽만 때리기', '섞이는 동안은 잠깐 기다리기'],
+    p2: {
+      type: '좌우 반전 + 파편', dmg: '12 (파편 하나)',
+      feat: ['4초 동안 조작이 좌우로 뒤집힘', '그동안 파편 6개가 날아옴'],
+      tips: ['마우스를 반대로 움직여서 파편 피하기'],
+    },
+  },
+  '방지턱 우현': {
+    type: '충격 (덜컹)',
+    feat: ['평소엔 자면서 회복 (2초 안 맞으면 초당 18)', '덜컹! 하면 화면이 튀고 커서가 튕겨 나감'],
+    tips: ['덜컹할 때 가드', '튕긴 커서를 빨리 다시 맞추고 계속 때려서 못 자게 하기'],
+  },
+  '죄송합니다 우현': {
+    type: '박치기 (꾸벅)',
+    feat: ['꾸벅! 박치기 후 숙인 채로 "죄송합니다…"', '숙인 동안 때리면 양심에 찔려서 내가 8 피해'],
+    tips: ['꾸벅은 가드', '일어날 때까지 기다렸다가 때리기'],
+    p2: { type: '돌격', feat: ['사과를 안 받아줬더니 흔들리면서 돌진', '공격 간격 2.4초'], tips: ['달려와서 커지면 가드'] },
+  },
+  '고추먹고맴맴 우현 (재업)': {
+    type: '불 뿜기',
+    feat: ['계속 맴맴 돌아서 정면일 때만 맞음', '불 뿜을 땐 정면에서 멈춤'],
+    tips: ['정면을 볼 때만 때리기', '불은 가드로 버티기'],
+  },
+  '"네" 우현': {
+    type: '퀴즈', dmg: '20 (틀리거나 시간 초과)',
+    feat: ['질문을 하고 대답들이 화면에 떠다님', '이 우현은 무조건 "네"라고 대답함'],
+    tips: ['3초 안에 "네"를 때리면 기분이 좋아져서 기절', '기절했을 때 몰아서 때리기'],
+  },
+  '비트세이버 우현': {
+    type: '리듬 (큐브 베기)', dmg: '10 (놓친 큐브) · 15 (폭탄)',
+    feat: ['챕터 2 외전 중간 보스', '128 BPM 박자에 맞춰 큐브가 날아옴', '주먹은 안 닿음. 큐브를 베야 피해가 들어감', '체력 60% 아래면 큐브가 2개씩'],
+    tips: ['큐브에 그려진 화살표 방향으로 커서를 빠르게 긋기', '폭탄은 건드리지 말기', '타이밍이 딱 맞으면 PERFECT (피해 더 큼)'],
+  },
+  '매드무비 우현': {
+    type: '패턴 (편집 · 자막 · 광고)',
+    feat: ['챕터 2 외전 보스', '방어구 400'],
+    pats: [
+      ['편집점', '화면이 여러 칸으로 나뉨. 글리치 걸린 칸을 찾아서 때리기 (틀리면 15, 끝까지 못 찾으면 26)'],
+      ['자막 폭격', '자막이 화면을 가로질러 날아옴 (하나 13). 커서로 피하기'],
+      ['광고', '광고가 떠 있는 동안 보스가 회복함. X를 눌러서 바로 닫기'],
+    ],
+    p2: {
+      type: '패턴 (콧구멍 · 자막 · 광고)',
+      feat: ['콧구멍으로 줌인', '공격 간격이 짧아짐'],
+      pats: [
+        ['콧구멍 흡입', '커서가 콧구멍 쪽으로 점점 세게 끌려감. 반대쪽으로 버티기 (빨려 들어가면 32)'],
+        ['콧바람', '콧물 방울이 둥글게 퍼짐 (하나 9). 빈틈으로 피하기'],
+        ['자막 폭격 (고속)', '더 빠르고 많은 자막'],
+        ['광고 (건너뛰기 불가)', '가짜 X가 섞여 있음. 진짜 X를 찾아서 닫기'],
+        ['편집점', '칸이 더 빨리 바뀜'],
+      ],
+    },
+  },
+
+  'THE DOOR': {
+    type: '공격 안 함 (폭발)', dmg: '1000 (폭발)',
+    feat: ['때려도 반격하지 않음', '체력이 줄수록 게이지가 차고, 체력이 다 닳으면 0.2초 뒤에 폭발'],
+    tips: ['마지막 한 방을 넣자마자 바로 카운터 (카운터로만 완전히 막힘)', '가드는 일부만 줄여 줌'],
+  },
+  '개빡우현': {
+    type: '휘두르기 연타', dmg: '총 30 (3~5번에 나눠서)',
+    feat: ['화나서 피규어를 3~5번 마구 휘두름', '휘두르는 간격이 불규칙함'],
+    tips: ['휘두르는 순간을 보고 가드 / 카운터'],
+  },
+  '당황당우현': {
+    type: '탄막 (딸기) + 피규어', dmg: '20 (딸기 하나)',
+    feat: ['딸기 5개를 던짐. 마우스 커서에 닿으면 피해', '피규어 3개를 날림. 남아 있으면 때릴 때 오히려 우현이 회복', '20% 확률로 피함'],
+    tips: ['딸기는 커서를 움직여서 피하기', '날아온 피규어부터 부수고 나서 때리기'],
+  },
+  '보석바나나신라면섭취우현': {
+    type: '패턴 (미쿠빔 · 베기 · 미사일)',
+    feat: ['챕터 3 보스', '방어구 500: 방어구가 남아 있는 동안은 회피 안 함', '방어구가 깨지면 회피 100%: 기절했을 때만 맞음', '카운터 반사 피해를 75% 덜 받음'],
+    tips: ['먼저 방어구부터 깨기', '그다음엔 카운터로 기절(5초)시키고 몰아서 때리기', '하얀 점선 = 카운터 가능. 빨간 예고만 있으면 카운터 불가, 피하기만'],
+    pats: [
+      ['피규어 베기', '큰 피규어가 화면 아래쪽 부채꼴을 4번 벰 (한 번 100). 빨간 예고 → 베기 0.3초 전에 하얀 점선. 커서를 위쪽 구석으로 빼거나 하얀 점선 때 카운터. 4번 다 카운터하면 기절'],
+      ['미쿠 미사일 3연사', '양옆 미쿠 6개가 커서를 조준 → 하얀 점선으로 경로 고정 → 0.3초 뒤 발사 (하나 45). 점선이 생기면 커서를 선 밖으로. 2번 카운터하면 기절'],
+      ['사각형 미쿠빔', '보스 사진만 빼고 화면을 4줄로 덮음 (200, 카운터 불가). 커서를 보스 사진 위에 두기'],
+      ['X 미쿠빔', '네 구석에서 대각선으로 X자 (200, 카운터 불가). 위 · 아래 · 왼쪽 · 오른쪽 가운데 빈 곳으로'],
+      ['가로 미쿠빔', '커서 높이를 노림. 화면 높이 30% 굵기 (200). 빨간 예고 보고 위나 아래로'],
+      ['세로 미쿠빔', '커서 가로 위치를 노림. 화면 너비 50% 굵기 (200). 예고 보고 왼쪽이나 오른쪽 끝으로'],
+      ['딸기 섭취', '가끔 라면 냄비에서 딸기가 튀어나옴. 0.75초 안에 때리지 못하면 500 회복'],
+      ['미쿠 피규어 떨어뜨림', '아주 가끔 양옆에 미쿠를 떨어뜨림. 때리면 5초 기절'],
+    ],
+    p2: {
+      type: '패턴 (쉬지 않음)',
+      feat: ['패턴 사이 쉬는 시간이 없음', '라면 냄비가 없어서 딸기 섭취 안 함'],
+      pats: [
+        ['피규어 연속 베기', '피규어 베기가 더 빨라짐'],
+        ['360도 미쿠빔', '보스 둘레에서 미쿠 18개가 하나씩 생기며 가운데를 지나 쏨. 미쿠가 생기는 방향을 따라 커서를 원 모양으로 계속 돌리기'],
+        ['주황 · 파랑 휘두르기', '화면 전체를 5~8번 휘두름 (한 번 50). 주황은 커서를 움직이고 있어야, 파랑은 가만히 있어야 안 맞음. 화면 가장자리 색으로 다음 색을 미리 볼 수 있음'],
+        ['그 외', '미쿠 미사일 · 사각형 · X · 가로 · 세로 미쿠빔도 그대로 씀'],
+      ],
+    },
+  },
+};
+// 도감 순서 = 챕터 선택 지도 순서 (메인 → 그 챕터의 외전)
+const DEX_ORDER = ['tutorial', 'ch1', 'ch2side', 'ch2', 'ch3side', 'ch3'];
+function dexList() {
+  const out = [];
+  for (const id of DEX_ORDER) {
+    const ch = CHAPTERS.find(c => c.id === id);
+    if (ch) for (const def of ch.enemies) out.push({ def, ch });
+  }
+  return out;
+}
+const dexSeen = (name, ch) => player.seen.includes(name) || isCleared(ch.id);
+function markSeen(name) {
+  if (!name || player.seen.includes(name)) return;
+  player.seen.push(name); saveGame();
+}
 const isUnlocked = ch => !ch.requires || isCleared(ch.requires) || isCleared(ch.id);   // 이미 깬 챕터는 계속 열려 있음
 // 챕터 클리어 처리 (보상 무기 지급 포함). 새로 얻은 무기 id를 돌려줌
 // 챕터 시작할 때 가지고 가는 힐템: 기본 + 깬 챕터들의 보상
@@ -1245,7 +1454,7 @@ function markCleared(ch) {
   return got;
 }
 function resetData() {
-  player.weapons = [DEFAULT_WEAPON]; player.equipped = null; player.cleared = []; player.god = false;
+  player.weapons = [DEFAULT_WEAPON]; player.equipped = null; player.cleared = []; player.seen = []; player.god = false;
   try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
   saveGame();
 }
@@ -1330,7 +1539,7 @@ function announceEnemy(en) {
   // 체크포인트: 보스 (midRetry면 중간 보스도). 더 뒤의 체크포인트에 오면 바꿈
   const ch = chapter(), cpHere = ch.bossRetry && (en.def.boss || (ch.midRetry && en.def.midboss));
   if (cpHere && (!G.checkpoint || G.checkpoint.idx < G.idx)) G.checkpoint = { idx: G.idx, heals: { ...player.heals }, label: en.def.boss ? '보스전부터 다시' : '중간 보스부터 다시' };
-  resetCursor(); discordPost(en);
+  resetCursor(); discordPost(en); markSeen(en.def.name);
   if (en.def.bossIntro) { startBossCine(en, G.cineFast); G.cineFast = false; return; }
   if (en.def.boss) { setBanner('BOSS', en.def.name, '#ff3b3b', t, hint); SFX.boss(); }
   else if (en.def.midboss) { setBanner('MID BOSS', en.def.name, '#ff9a3c', t, hint); SFX.boss(); }
@@ -3406,6 +3615,7 @@ function whiff(x, y) {
 // 보스 2페이즈: 체력이 일정 이하가 되면 다른 사진·이름·공격으로 바뀜 (최대 체력은 그대로)
 function enterPhase2(en) {
   const p2 = en.def.phase2;
+  markSeen(p2.name);
   en.def = { ...en.def, ...p2, hp: en.def.hp, phase2: null };
   if (p2.img && !p2.anim) en.def.anim = null;   // 움짤 → 사진으로 바뀜
   en.img = cropFor(en.def);
@@ -4436,6 +4646,7 @@ function abilityHtml(w) {
 
 // 선택한 아이템 사용: 무기는 장착(장착 중이면 해제), 힐템은 먹기
 function useSelected() {
+  if (invUI.cat === 'dex') return;
   if (invUI.cat === 'weapon') {
     const id = invUI.sel || weaponId();
     if (!WEAPONS[id]) return;
@@ -4458,7 +4669,65 @@ function useSelected() {
   renderInv();
 }
 
+// ---------- 도감 ----------
+const DEX_RANK = { boss: ['보스', '#ff2a3d'], mid: ['중간 보스', '#ff8a1a'], normal: ['일반', '#9aa0b5'] };
+const rankOf = def => DEX_RANK[def.boss ? 'boss' : def.midboss ? 'mid' : 'normal'];
+// 적 그림: 사진은 img, 움짤은 스프라이트 시트 첫 장면
+function dexThumb(def, cls) {
+  const a = def.anim;
+  if (a) {
+    const rows = Math.ceil(a.n / a.cols);
+    const size = cls.startsWith('dex-img') ? 'width:auto;height:150px;margin:0 auto 10px' : a.fh > a.fw ? 'height:62%;width:auto' : 'width:62%;height:auto';
+    return `<div class="${cls} sheet" style="background-image:url('${encodeURI(a.sheet)}');background-size:${a.cols * 100}% ${rows * 100}%;aspect-ratio:${a.fw}/${a.fh};${size}"></div>`;
+  }
+  return `<div class="${cls}" style="background-image:url('${encodeURI(def.img)}')"></div>`;
+}
+const dexDmg = (def, d) => {
+  if (d.dmg) return d.dmg;
+  if (def.door || def.attack === 'pattern') return '패턴마다 다름 (아래 참고)';
+  const v = def.damage; if (v == null) return '-';
+  const base = Array.isArray(v) ? `${v[0]}~${v[1]}` : String(v);
+  if (def.attack === 'fire') return `총 ${base} (${def.fireTime || 2}초 동안 나눠서)`;
+  if (def.attack === 'notes') return `${base} × ${def.shots || 3}개`;
+  return (def.shots || 1) > 1 ? `${base} × ${def.shots}연속` : base;
+};
+const dexCd = def => def.door ? '공격 안 함' : def.cooldown <= 0 ? '없음 (쉬지 않고 공격)' : `${def.cooldown}초${def.attack === 'pattern' ? ' (패턴 끝나고)' : ''}`;
+const dexUl = (title, lines, cls = '') => lines && lines.length ? `<div class="ability dex-box ${cls}"><h4>${title}</h4><ul>${lines.map(l => `<li>${l}</li>`).join('')}</ul></div>` : '';
+function dexInfo(def, d, hpLabel) {
+  const rows = [['공격 방식', d.type || '-'], ['체력', hpLabel], ['공격 쿨타임', dexCd(def)], ['피해', dexDmg(def, d)]];
+  if (def.armor) rows.splice(2, 0, ['방어구', def.armor]);
+  if (def.evade) rows.push(['회피', `${Math.round(def.evade * 100)}%`]);
+  if (def.regen) rows.push(['회복', `${def.regen.delay}초 안 맞으면 초당 ${def.regen.perSec}`]);
+  return `<div class="wstats">${rows.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('')}</div>`
+    + dexUl('특징', d.feat) + dexUl('공략', d.tips, 'tips')
+    + dexUl('패턴 · 피하는 법', (d.pats || []).map(([n, t]) => `<b>${n}</b> — ${t}`), 'pats');
+}
+function renderDex() {
+  const list = dexList(), it = list.find(e => e.def.name === invUI.sel) || list[0];
+  if (!it) { detail.innerHTML = ''; return; }
+  const { def, ch } = it, seen = dexSeen(def.name, ch), [rank, col] = rankOf(def);
+  if (!seen) {
+    detail.innerHTML = `${dexThumb(def, 'dex-img unseen')}<div class="dname" style="color:#777">???</div>
+      <span class="badge ch">${ch.label}</span><p>아직 만나지 못한 적이에요.<br>${ch.label} · ${ch.name}에서 만날 수 있어요.</p>`;
+    return;
+  }
+  const d = DEX[def.name] || {};
+  let html = `${dexThumb(def, 'dex-img')}<div class="dname" style="color:${col}">${def.name}</div>
+    <span class="badge" style="background:${col}">${rank}</span><span class="badge ch">${ch.label} · ${ch.name}</span>
+    ${def.hint ? `<p>${def.hint}</p>` : ''}${dexInfo(def, d, fmt(def.hp))}`;
+  const p2 = def.phase2;
+  if (p2) {
+    const pct = Math.round(p2.at * 100);
+    if (dexSeen(p2.name, ch)) {
+      const def2 = { ...def, ...p2 }, d2 = d.p2 || {};
+      html += `<div class="dex-p2"><h3>2페이즈 · ${p2.name}<small>체력 ${pct}% 이하</small></h3>${p2.hint ? `<p>${p2.hint}</p>` : ''}${dexInfo(def2, d2, `${pct}% 남았을 때부터`)}</div>`;
+    } else html += `<div class="dex-p2"><h3>2페이즈 · ???<small>체력 ${pct}% 이하</small></h3><p class="unknown">아직 못 봤어요.</p></div>`;
+  }
+  detail.innerHTML = html;
+}
+
 function renderDetail() {
+  if (invUI.cat === 'dex') { renderDex(); return; }
   if (invUI.cat === 'weapon') {
     const id = invUI.sel || weaponId(), w = WEAPONS[id], gr = gradeOf(w), on = weaponId() === id;
     detail.innerHTML = `
@@ -4503,6 +4772,7 @@ function renderInv() {
   document.querySelectorAll('#inv .tab').forEach(t => t.classList.toggle('on', t.dataset.cat === invUI.cat));
 
   // 가방
+  if (invUI.cat === 'dex') { renderDexBag(); renderDetail(); return; }
   const isW = invUI.cat === 'weapon';
   const ids = isW ? player.weapons : healIds();
   const curSel = invUI.sel || (isW ? weaponId() : ids[0]);
@@ -4529,6 +4799,28 @@ function renderInv() {
     Object.values(GRADES).map(g => `<div class="row"><i style="background:${g.color}"></i><span style="color:${g.color}">${g.name}</span></div>`).join('');
 
   renderDetail();
+}
+// 도감 칸: 만난 적은 그림 + 이름, 못 만난 적은 검은 실루엣 + ???
+function renderDexBag() {
+  const list = dexList(), sel = invUI.sel || (list[0] && list[0].def.name);
+  bag.innerHTML = '';
+  let lastCh = null;
+  for (const { def, ch } of list) {
+    if (ch !== lastCh) {   // 챕터마다 제목 줄
+      lastCh = ch;
+      const h = document.createElement('div'); h.className = 'dex-head'; h.textContent = ch.label + ' · ' + ch.name; bag.appendChild(h);
+    }
+    const seen = dexSeen(def.name, ch), [, col] = rankOf(def), el = document.createElement('div');
+    el.className = 'slot has' + (seen ? '' : ' unseen') + (sel === def.name ? ' sel' : '');
+    el.style.borderColor = seen ? col : '#3a3150';
+    el.innerHTML = `${def.boss || def.midboss ? `<span class="tag" style="color:${seen ? col : '#666'}">${def.boss ? 'BOSS' : 'MID'}</span>` : ''}${dexThumb(def, 'dthumb')}<span class="nm" style="color:${seen ? '#ddd' : '#666'}">${seen ? def.name : '???'}</span>`;
+    el.addEventListener('click', () => { if (invUI.sel !== def.name) { invUI.sel = def.name; renderInv(); } });
+    bag.appendChild(el);
+  }
+  // 왼쪽 아래: 도감 진행도 + 구분
+  const n = list.filter(e => dexSeen(e.def.name, e.ch)).length;
+  gradesEl.innerHTML = `<div class="label">도감 ${n} / ${list.length}</div>` +
+    Object.values(DEX_RANK).map(([name, c]) => `<div class="row"><i style="background:${c}"></i><span style="color:${c}">${name}</span></div>`).join('');
 }
 document.querySelectorAll('#inv .tab').forEach(t => t.addEventListener('click', () => { invUI.cat = t.dataset.cat; invUI.sel = null; renderInv(); }));
 
