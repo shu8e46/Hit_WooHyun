@@ -1264,17 +1264,34 @@ const SFX = {
 const IMG = {};
 const crops = new Map();
 
+// 적 사진처럼 아주 큰 그림은 짧은 변 1400px로 줄인 캔버스로 바꿔 둠 (원본 3392px 사진 한 장이 메모리 34MB)
+// 화면 전체 그림(1920x1080)은 짧은 변이 1080이라 그대로. 캔버스에도 naturalWidth/Height를 달아서 그림처럼 씀
+const IMG_MAX_SHORT = 1400;
+// 적 사진(def.img · phase2.img)만 줄임: 움짤 스프라이트 시트는 프레임 좌표가 원본 픽셀 기준이고, gif는 캔버스로 옮기면 멈춰서 건드리면 안 됨
+let enemyPhotos = null;
+function shrinkImage(im, src) {
+  if (!enemyPhotos) enemyPhotos = new Set(CHAPTERS.flatMap(c => c.enemies.flatMap(e => [e.img, e.phase2 && e.phase2.img])).filter(Boolean));
+  const w = im.naturalWidth, h = im.naturalHeight, short = Math.min(w, h);
+  if (short <= IMG_MAX_SHORT || !enemyPhotos.has(src) || /\.gif$/i.test(src)) return im;
+  const k = IMG_MAX_SHORT / short, c = makeCanvas(w * k, h * k), g = c.getContext('2d');
+  g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, c.width, c.height);
+  c.naturalWidth = c.width; c.naturalHeight = c.height; c.src = src;
+  return c;
+}
 function loadImages(names, onProgress, onDone) {
   const list = [...new Set(names.filter(Boolean))];
   let done = 0;
   if (!list.length) { onDone(); return; }
   list.forEach(n => {
     const im = new Image();
-    im.onload = im.onerror = () => {
-      if (im.naturalWidth) IMG[n] = im;
+    const fin = () => {
+      if (im.naturalWidth) IMG[n] = shrinkImage(im, n);
       done++; onProgress(done, list.length);
       if (done === list.length) onDone();
     };
+    // decode(): 처음 화면에 그릴 때 그 자리에서 풀다가 끊기지 않게 불러올 때 미리 풀어 둠
+    im.onload = () => { if (im.decode) im.decode().catch(() => {}).then(fin); else fin(); };
+    im.onerror = fin;
     im.src = encodeURI(n);
   });
 }
@@ -1310,20 +1327,55 @@ function drawCover(im, x, y, w, h) {
 }
 
 /* ---------- 미리 그려 두는 캔버스 (매 프레임 비싼 연산을 피하려고) ---------- */
+// 빛번짐(halo): shadowBlur를 큰 그림에 매 프레임 쓰면 아주 무거움 → 그림 · 색 · 번짐 크기마다 한 번만 그려 두고 재사용
+// (그림은 캔버스 밖에 두고 그림자만 안으로 들어오게 그려서, 빛만 담긴 캔버스를 만듦)
+const haloCache = new WeakMap();
+function haloOf(im, color, blur) {
+  let m = haloCache.get(im); if (!m) { m = new Map(); haloCache.set(im, m); }
+  const key = color + '|' + blur;
+  let c = m.get(key);
+  if (!c) {
+    const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, pad = Math.ceil(blur * 1.6);
+    c = makeCanvas(w + pad * 2, h + pad * 2); c.pad = pad;
+    const g = c.getContext('2d'), off = w + pad * 2 + 100;
+    g.shadowColor = color; g.shadowBlur = blur; g.shadowOffsetX = off;
+    g.drawImage(im, pad - off, pad, w, h);
+    m.set(key, c);
+  }
+  return c;
+}
+// 그림 (x, y, w, h) 뒤에 깔 빛번짐만 그림. blur: 화면에서 보일 번짐 크기(px)
+function drawHalo(im, color, blur, x, y, w, h, alpha = 1) {
+  const nw = im.naturalWidth || im.width, nh = im.naturalHeight || im.height, sx = w / nw, sy = h / nh;
+  const b = Math.max(4, Math.round(blur / Math.max(0.05, (sx + sy) / 2) / 4) * 4);   // 크기별로 너무 많이 안 만들게 4px 단위
+  const c = haloOf(im, color, b), ga = ctx.globalAlpha;
+  ctx.globalAlpha = ga * alpha;
+  ctx.drawImage(c, x - c.pad * sx, y - c.pad * sy, c.width * sx, c.height * sy);
+  ctx.globalAlpha = ga;
+}
+// 지금 경로를 빛나는 선으로: 흐린 굵은 선 + 본 선 (긴 선 · 큰 원에 shadowBlur 대신)
+function softStroke(color, lw, glowW = 14, glowA = 0.3) {
+  const ga = ctx.globalAlpha;
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = ga * glowA; ctx.lineWidth = lw + glowW; ctx.stroke();
+  ctx.globalAlpha = ga; ctx.lineWidth = lw; ctx.stroke();
+}
 function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; }
 
 // 배경: 수 MB짜리 원본을 매 프레임 줄여 그리지 않고, 화면 크기에 맞춘 캔버스에 한 번만 그려 둠
 // (창 크기 · 챕터 · 렌더 배율이 바뀔 때만 다시 그림). 카메라 흔들림 여백 60px 포함
-let bgCache = null;
+const bgCaches = new Map();   // 이름 → { key, c } (배경 · 바다처럼 화면을 꽉 채우는 그림 몇 장)
 function bgFor(name) {
   const im = name && IMG[name]; if (!im) return null;
   const rs = DPR * UIS, key = `${name}|${W}|${H}|${rs}`;   // 실제 화면 픽셀 크기로 그려 둠
-  if (bgCache && bgCache.key === key) return bgCache.c;
+  const hit = bgCaches.get(name);
+  if (hit && hit.key === key) return hit.c;
+  if (!hit && bgCaches.size >= 3) bgCaches.delete(bgCaches.keys().next().value);   // 오래된 것부터 비움
   const c = makeCanvas((W + 120) * rs, (H + 120) * rs), g = c.getContext('2d', { alpha: false });
   const s = Math.max(c.width / im.naturalWidth, c.height / im.naturalHeight), dw = im.naturalWidth * s, dh = im.naturalHeight * s;
   g.imageSmoothingQuality = 'high';
   g.drawImage(im, (c.width - dw) / 2, (c.height - dh) / 2, dw, dh);
-  bgCache = { key, c };
+  bgCaches.set(name, { key, c });
   return c;
 }
 
@@ -1781,6 +1833,7 @@ let UIS = 1;
 function resize() {
   DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, dprCap));   // 상한 1.5 (프레임이 떨어지면 perf가 더 낮춤)
   const vw = window.innerWidth, vh = window.innerHeight;
+  if (!(vw > 0) || !(vh > 0)) return;   // 창 크기가 0인 순간(최소화 · 로딩 중)엔 계산하지 않음 (NaN 방지)
   UIS = Math.min(vw / UI_W, vh / UI_H);
   W = vw / UIS; H = vh / UIS;   // 게임 좌표 (FHD 기준)
   cvs.width = Math.round(vw * DPR); cvs.height = Math.round(vh * DPR);
@@ -1798,6 +1851,7 @@ function setBanner(title, sub, color, max = 1.6, hint = '') { G.banner = { title
 // firstAttack이 있으면 첫 공격만 빨리 옴
 function makeEnemy(def) {
   const img = cropFor(def);
+  if (def.phase2 && (def.phase2.img || def.phase2.anim)) cropFor({ ...def, ...def.phase2 });   // 2페이즈 사진도 미리
   if (!def.anim && (def.hue || (def.phase2 && def.phase2.hue))) hueVariants(img);   // 색 바뀌는 적: 챕터 시작할 때 미리 칠해 둠 (싸우는 중 끊김 방지)
   return {
     def, hp: def.hp, hpChip: def.hp, armor: def.armor || 0, cd: def.firstAttack != null ? Math.max(0, def.cooldown - def.firstAttack) : 0, warned: false, state: 'fight', t: 0, alpha: 1,
@@ -2281,9 +2335,17 @@ function counterPress() {
 const sfxFiles = {};
 let lastRandom = null;
 function preloadSounds(list) { for (const src of list) if (!sfxFiles[src]) { sfxFiles[src] = new Audio(encodeURI(src)); sfxFiles[src].preload = 'auto'; } }
+const sfxPool = {};
 function playSound(src, v = 0.9) {
   preloadSounds([src]);
-  const a = sfxFiles[src].cloneNode();   // 연속으로 나도 소리가 겹쳐서 끊기지 않게
+  // 연속으로 나도 겹쳐서 끊기지 않게 소리마다 최대 4개를 번갈아 씀 (다 재생 중이면 가장 오래된 것을 처음부터)
+  const pool = sfxPool[src] || (sfxPool[src] = []);
+  let a = pool.find(x => x.paused || x.ended);
+  if (!a) {
+    if (pool.length < 4) { a = sfxFiles[src].cloneNode(); pool.push(a); }
+    else { a = pool.shift(); pool.push(a); }
+  }
+  try { a.currentTime = 0; } catch (e) {}
   a.muted = muted; a.volume = Math.min(1, v * volOf(sfxCat));
   a.play().catch(() => {});
 }
@@ -2710,7 +2772,8 @@ function drawGBMiku(b) {
   const t = b.t, end = b.warn + b.fire, h = gbHead(b), sc = b.size / im.naturalHeight, firing = t >= b.warn && t < end;
   ctx.save(); ctx.globalAlpha = t > end ? clamp(1 - (t - end) / 0.25, 0, 1) : 1;
   ctx.translate(h.x, h.y); ctx.rotate(b.ang + Math.PI / 2);
-  ctx.shadowColor = beamWhite() ? (firing ? '#ffffff' : 'rgba(230,230,255,0.9)') : firing ? '#ff3bd0' : 'rgba(255,60,200,0.9)'; ctx.shadowBlur = 30;
+  const gc = beamWhite() ? (firing ? '#ffffff' : 'rgba(230,230,255,0.9)') : firing ? '#ff3bd0' : 'rgba(255,60,200,0.9)';
+  drawHalo(im, gc, 30, -im.naturalWidth * sc / 2, 0, im.naturalWidth * sc, b.size);
   ctx.drawImage(im, -im.naturalWidth * sc / 2, 0, im.naturalWidth * sc, b.size);
   ctx.restore();
 }
@@ -2985,7 +3048,7 @@ function drawBullets() {
       const tint = b.color === 'orange' ? '#ff9a1a' : b.color === 'blue' ? '#2fb4ff' : null;   // 주황/파랑
       const drawFig = (a, alpha, glow) => {
         ctx.save(); ctx.globalAlpha = alpha; ctx.translate(g.px, g.py); ctx.rotate(a + Math.PI / 2);
-        if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 40; }
+        if (glow) drawHalo(im, glow, 40, -w / 2, -g.R, w, g.R);
         ctx.drawImage(im, -w / 2, -g.R, w, g.R); ctx.restore();
       };
       if (!b.done) {   // 예고: 시작 쪽에 큰 피규어(빨강) → 베기 SWEEP_GAP초 전부터 흰 점선
@@ -2994,12 +3057,11 @@ function drawBullets() {
         ctx.beginPath(); ctx.moveTo(g.px, g.py); ctx.arc(g.px, g.py, g.R, g.a1, g.a0); ctx.closePath();
         if (tint) {
           ctx.globalAlpha = 0.22 + 0.1 * Math.sin(G.rt * 20); ctx.fillStyle = tint; ctx.fill(); ctx.globalAlpha = 1;
-          if (lock) { ctx.setLineDash([22, 14]); ctx.shadowColor = tint; ctx.shadowBlur = 12; ctx.strokeStyle = tint; ctx.lineWidth = 8; ctx.stroke(); }
+          if (lock) { ctx.setLineDash([22, 14]); softStroke(tint, 8); }
         } else if (!lock) { ctx.globalAlpha = 0.08 + 0.06 * Math.sin(G.rt * 20); ctx.fillStyle = '#ff3b3b'; ctx.fill(); }
         else {
           ctx.globalAlpha = 0.1; ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.globalAlpha = 1;
-          ctx.setLineDash([22, 14]); ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 12;
-          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 6; ctx.stroke();
+          ctx.setLineDash([22, 14]); softStroke('#ffffff', 6);
         }
         ctx.restore();
         drawFig(aStart, clamp(b.t / 0.15, 0, 1), tint || (lock ? '#ffffff' : 'rgba(255,40,60,0.9)'));
@@ -3025,23 +3087,23 @@ function drawBullets() {
         const dx = b.tx - b.lx, dy = b.ty - b.ly, L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy * MSL_R, ny = ux * MSL_R;
         if (!b.shot) {   // 경로 고정: 빔 굵기 그대로 하얀 띠 + 양쪽 가장자리 흰 점선 (발사까지 MSL_GAP초)
           ctx.globalAlpha = 0.14; ctx.strokeStyle = '#ffffff'; beamBand(b.lx, b.ly, ux, uy, MSL_R * 2);
-          ctx.globalAlpha = 1; ctx.setLineDash([22, 14]); ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 12; ctx.lineWidth = 5;
+          ctx.globalAlpha = 1; ctx.setLineDash([22, 14]);
           ctx.beginPath();
           ctx.moveTo(b.lx + nx, b.ly + ny); ctx.lineTo(b.lx + nx + ux * 4000, b.ly + ny + uy * 4000);
           ctx.moveTo(b.lx - nx, b.ly - ny); ctx.lineTo(b.lx - nx + ux * 4000, b.ly - ny + uy * 4000);
-          ctx.stroke();
+          softStroke('#ffffff', 5);
         } else {   // 히트스캔 발사: 쏘는 순간 판정 굵기 그대로 → 점점 가늘어지며 사라짐
           const k = clamp(1 - b.shotT / 0.5, 0, 1), wd = MSL_R * 2 * (0.55 + 0.45 * k);
           const wb = beamWhite();
-          ctx.globalAlpha = k; ctx.shadowColor = wb ? '#ffffff' : '#ff8ad8'; ctx.shadowBlur = 30;
-          ctx.strokeStyle = wb ? '#f4f4ff' : '#ffb3e6'; beamBand(b.lx, b.ly, ux, uy, wd);
-          ctx.shadowBlur = 0; ctx.strokeStyle = '#ffffff'; beamBand(b.lx, b.ly, ux, uy, wd * 0.5);
+          ctx.globalAlpha = k * 0.3; ctx.strokeStyle = wb ? '#ffffff' : '#ff8ad8'; beamBand(b.lx, b.ly, ux, uy, wd + 36);   // 빛번짐
+          ctx.globalAlpha = k; ctx.strokeStyle = wb ? '#f4f4ff' : '#ffb3e6'; beamBand(b.lx, b.ly, ux, uy, wd);
+          ctx.strokeStyle = '#ffffff'; beamBand(b.lx, b.ly, ux, uy, wd * 0.5);
         }
       }
       ctx.restore();
       ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.ang);
-      ctx.shadowColor = b.locked ? '#ffffff' : 'rgba(255,40,60,0.9)'; ctx.shadowBlur = 22;
       if (b.shot) ctx.globalAlpha = clamp(1 - b.shotT / 0.5, 0, 1);
+      drawHalo(im, b.locked ? '#ffffff' : 'rgba(255,40,60,0.9)', 22, -w / 2, -h / 2, w, h);
       ctx.drawImage(im, -w / 2, -h / 2, w, h); ctx.restore();
     } else if (b.k === 'hb') {   // 냄비에서 튀어나오는 딸기 + 남은 시간 원
       const im = IMG[BERRY]; if (!im) continue;
@@ -3054,7 +3116,7 @@ function drawBullets() {
       const im = figImg(); if (!im) continue;
       const w = im.naturalWidth * WP_S, h = im.naturalHeight * WP_S;
       ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.rot + Math.sin(b.t * 3) * 0.05);
-      ctx.shadowColor = '#ff8ad8'; ctx.shadowBlur = 26;
+      drawHalo(im, '#ff8ad8', 26, -w / 2, -h / 2, w, h);
       ctx.drawImage(im, -w / 2, -h / 2, w, h); ctx.restore();
     } else if (b.k === 'fig') {
       const im = figImg(); if (!im) continue;
@@ -3070,7 +3132,7 @@ function drawBullets() {
       for (let k = ghosts; k >= 0; k--) {
         ctx.save(); ctx.globalAlpha = k ? 0.18 : 1;
         ctx.translate(b.x - b.vx * 0.012 * k, b.y - b.vy * 0.012 * k); ctx.rotate(b.ang);
-        ctx.shadowColor = !b.fired && b.fireAt - b.t < 0.3 ? '#ffffff' : 'rgba(255,40,60,0.9)'; ctx.shadowBlur = 22;
+        drawHalo(im, !b.fired && b.fireAt - b.t < 0.3 ? '#ffffff' : 'rgba(255,40,60,0.9)', 22, -w / 2, -h / 2, w, h);
         ctx.drawImage(im, -w / 2, -h / 2, w, h);
         ctx.restore();
       }
@@ -3081,7 +3143,7 @@ function drawBullets() {
       let x = b.x, y = b.y + Math.sin(b.t * 3) * 6;
       if (b.shake > 0) { x += rand(-6, 6); y += rand(-6, 6); }
       ctx.save(); ctx.translate(x, y); ctx.rotate(b.rot);
-      ctx.shadowColor = 'rgba(57,197,187,0.9)'; ctx.shadowBlur = 18;
+      drawHalo(im, 'rgba(57,197,187,0.9)', 18, -w / 2, -h / 2, w, h);
       ctx.drawImage(im, -w / 2, -h / 2, w, h);
       if (b.flash > 0) { ctx.globalAlpha = b.flash; ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(im, -w / 2, -h / 2, w, h); }
       ctx.restore();
@@ -4007,7 +4069,6 @@ function drawTourBus(b) {
     ctx.fillStyle = lock ? '#ffffff' : '#ff323c'; ctx.fillRect(0, top, W, h);
     ctx.globalAlpha = 1; ctx.setLineDash([22, 14]); ctx.lineWidth = lock ? 5 : 3;
     ctx.strokeStyle = lock ? '#ffffff' : 'rgba(255,50,60,0.85)';
-    if (lock) { ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 12; }
     ctx.beginPath(); ctx.moveTo(0, top); ctx.lineTo(W, top); ctx.moveTo(0, top + h); ctx.lineTo(W, top + h); ctx.stroke();
     ctx.setLineDash([]); ctx.shadowBlur = 0;
     // 버스가 가는 방향 화살표 (흐르듯 움직임)
@@ -4147,7 +4208,8 @@ function drawSea(level, alpha = 1, seed = 0) {
   ctx.beginPath(); ctx.moveTo(-60, H + 60);
   for (let x = -60; x <= W + 60; x += 30) ctx.lineTo(x, level + wave(x));
   ctx.lineTo(W + 60, H + 60); ctx.closePath();
-  ctx.save(); ctx.clip(); drawCover(im, -60, -60, W + 120, H + 120); ctx.restore();
+  const pre = bgFor(SEA_IMG);   // 매번 원본(1920x1080)을 줄여 그리지 않고 화면 크기로 미리 그려 둔 것
+  ctx.save(); ctx.clip(); if (pre) ctx.drawImage(pre, -60, -60, W + 120, H + 120); else drawCover(im, -60, -60, W + 120, H + 120); ctx.restore();
   ctx.strokeStyle = 'rgba(230,245,255,0.85)'; ctx.lineWidth = 6;   // 거품
   ctx.beginPath();
   for (let x = -60; x <= W + 60; x += 30) { const y = level + wave(x); if (x === -60) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
@@ -4217,7 +4279,7 @@ function drawJet(b) {
   const fl = clamp((WJET.warn + WJET.fire - b.t) / 0.25, 0, 1);
   ctx.globalAlpha = 0.35 * fl; ctx.fillStyle = '#9fe0ff'; ctx.fillRect(0, -WJET.r, L, WJET.r * 2);   // 판정 굵기
   ctx.restore();
-  ctx.save(); ctx.globalAlpha = fl; ctx.shadowColor = '#7fd4ff'; ctx.shadowBlur = 20;
+  ctx.save(); ctx.globalAlpha = fl;
   drawStream(o.x, o.y, b.ax, b.ay, WJET.r * 2 * 1.7 * (1 + 0.06 * Math.sin(G.rt * 30)));
   ctx.restore();
 }
@@ -4346,10 +4408,9 @@ function drawDomain(b) {
   ctx.save();
   ctx.globalAlpha = 0.08 + 0.04 * Math.sin(G.rt * 12); ctx.fillStyle = '#ff2a3d';   // 빨간 원 바깥이 아니라 원 안쪽을 흐리게
   ctx.beginPath(); ctx.arc(b.cx, b.cy, b.rr, 0, TAU); ctx.arc(b.cx, b.cy, b.rw, 0, TAU, true); ctx.fill();
-  ctx.globalAlpha = 1; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 12; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.arc(b.cx, b.cy, b.rw, 0, TAU); ctx.stroke();   // 보스 외접원 (흰색)
-  ctx.shadowBlur = lock ? 16 : 0; ctx.strokeStyle = lock ? '#ffffff' : '#ff2a3d'; ctx.lineWidth = lock ? 10 : 8;
-  ctx.beginPath(); ctx.arc(b.cx, b.cy, b.rr, 0, TAU); ctx.stroke();   // 줄어드는 빨간 원
+  ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.arc(b.cx, b.cy, b.rw, 0, TAU); softStroke('#ffffff', 4);   // 보스 외접원 (흰색)
+  ctx.beginPath(); ctx.arc(b.cx, b.cy, b.rr, 0, TAU); softStroke(lock ? '#ffffff' : '#ff2a3d', lock ? 10 : 8, lock ? 20 : 10);   // 줄어드는 빨간 원
   ctx.restore();
 }
 // 영역전개 시전 중엔 배경이 바다로 바뀜 (보스 뒤)
@@ -4418,8 +4479,9 @@ AI.pool = {
     const im = IMG[GF_IMG]; if (!im) return;
     const st = en.gfStance > 0, h = size * 0.95, w = h * im.naturalWidth / im.naturalHeight;
     ctx.save();
-    if (st) { ctx.translate(0, size * 0.08); ctx.rotate(-1.35); ctx.shadowColor = '#5ac8ff'; ctx.shadowBlur = 40; }   // 앞으로 가로로 들어서 막는 자세
+    if (st) { ctx.translate(0, size * 0.08); ctx.rotate(-1.35); }   // 앞으로 가로로 들어서 막는 자세
     else { ctx.translate(size * 0.36, size * 0.12); ctx.rotate(-0.28 + Math.sin(G.rt * 2) * 0.04); }   // 오른손에 들고 있음
+    if (st) drawHalo(im, '#5ac8ff', 40, -w / 2, -h / 2, w, h);
     ctx.drawImage(im, -w / 2, -h / 2, w, h);
     ctx.restore();
     if (st) { ctx.fillStyle = `rgba(90,200,255,${0.14 + 0.08 * Math.sin(G.rt * 25)})`; ctx.fillRect(-size / 2, -size / 2, size, size); }
@@ -4920,7 +4982,7 @@ function hitEnemy(en, x, y) {
   } else if (Math.random() < 0.4) {
     texts.push({ str: pick(JAB_WORDS), x: x + rand(-40, 40), y: y - rand(60, 100), vx: 0, vy: -40, size: 58, life: 0, max: 0.5, rot: rand(-0.3, 0.3), c1: '#ffffff', c2: '#ffd23a' });
   }
-  if (navigator.vibrate) navigator.vibrate(counter ? 35 : 12);
+  if (navigator.vibrate && touchUI()) navigator.vibrate(counter ? 35 : 12);   // 폰에서만 진동
   if (kill) defeat(en);
 }
 
@@ -5254,21 +5316,38 @@ function bossHeaderCenter() {
   return { s: sc, top: H * 0.42 - BH.h * sc / 2 };
 }
 // 장식 소용돌이: 굵기가 점점 가늘어지는 곡선 (dir: -1 = 왼쪽으로 뻗음)
-function taperBezier(p, w0, w1) {
+function taperBezier(p, w0, w1, c = ctx) {
   const N = 18, pt = t => { const u = 1 - t; return [u * u * u * p[0] + 3 * u * u * t * p[2] + 3 * u * t * t * p[4] + t * t * t * p[6], u * u * u * p[1] + 3 * u * u * t * p[3] + 3 * u * t * t * p[5] + t * t * t * p[7]]; };
   let a = pt(0);
   for (let i = 1; i <= N; i++) {
     const b = pt(i / N);
-    ctx.lineWidth = lerp(w0, w1, i / N); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    c.lineWidth = lerp(w0, w1, i / N); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
     a = b;
   }
 }
+// 장식 하나 = 굵기가 변하는 곡선 4개 (조각 18개씩). 색 · 화면 배율마다 한 번만 그려 둠
+const FLOURISH = { x0: -40, y0: -10, w: 290, h: 130 }, flourishCache = new Map();
+function flourishSprite(color, res) {
+  const key = color + '|' + res;
+  let c = flourishCache.get(key);
+  if (!c) {
+    if (flourishCache.size > 60) flourishCache.clear();
+    c = makeCanvas(FLOURISH.w * res, FLOURISH.h * res);
+    const g = c.getContext('2d');
+    g.setTransform(res, 0, 0, res, -FLOURISH.x0 * res, -FLOURISH.y0 * res); g.lineCap = 'round'; g.strokeStyle = color;
+    taperBezier([0, 92, 30, 30, 140, 8, 205, 52], 15, 7, g);      // 큰 곡선
+    taperBezier([205, 52, 232, 78, 196, 98, 184, 74], 7, 3, g);  // 끝에서 말리는 부분
+    taperBezier([14, 98, 60, 60, 140, 44, 186, 70], 6, 2, g);    // 안쪽 가는 곡선
+    taperBezier([0, 92, -6, 104, -18, 104, -24, 96], 6, 2, g);   // 안쪽 꼬리
+    flourishCache.set(key, c);
+  }
+  return c;
+}
 function drawFlourish(x0, dir) {
-  ctx.save(); ctx.translate(x0, 0); ctx.scale(dir, 1); ctx.lineCap = 'round'; ctx.shadowBlur = 0;   // 그림자는 조각마다 겹쳐서 줄무늬가 생김
-  taperBezier([0, 92, 30, 30, 140, 8, 205, 52], 15, 7);      // 큰 곡선
-  taperBezier([205, 52, 232, 78, 196, 98, 184, 74], 7, 3);  // 끝에서 말리는 부분
-  taperBezier([14, 98, 60, 60, 140, 44, 186, 70], 6, 2);    // 안쪽 가는 곡선
-  taperBezier([0, 92, -6, 104, -18, 104, -24, 96], 6, 2);   // 안쪽 꼬리
+  const m = ctx.getTransform(), res = Math.max(0.2, Math.round(Math.hypot(m.a, m.b) * 20) / 20);   // 지금 화면 배율 (0.05 단위)
+  const sp = flourishSprite(ctx.strokeStyle, res);
+  ctx.save(); ctx.translate(x0, 0); ctx.scale(dir, 1); ctx.shadowBlur = 0;
+  ctx.drawImage(sp, FLOURISH.x0, FLOURISH.y0, FLOURISH.w, FLOURISH.h);
   ctx.restore();
 }
 // en: 보스, sc·top: 크기·위치, alpha: 투명도, fill: 체력바 차오름(0~1)
@@ -5348,6 +5427,22 @@ function drawCineTitle() {
   }
   drawBossHeader(c.en, sc, lerp(A.top, B.top, e), pop, clamp((c.t - T.titleAt - 0.3) / 1.0, 0, 1));
 }
+const warnGlowCache = new Map();
+function warnGlow(size) {
+  const m = ctx.getTransform(), res = Math.max(0.2, Math.round(Math.hypot(m.a, m.b) * 10) / 10), key = Math.round(size) + '|' + res;
+  let c = warnGlowCache.get(key);
+  if (!c) {
+    if (warnGlowCache.size > 40) warnGlowCache.clear();
+    const pad = 70;
+    c = makeCanvas((size + pad * 2) * res, (size + pad * 2) * res); c.pad = pad;
+    const g = c.getContext('2d');
+    g.setTransform(res, 0, 0, res, pad * res, pad * res);
+    g.shadowColor = 'rgba(255,30,30,0.95)'; g.shadowBlur = 40 * res;
+    g.fillStyle = '#ff3030'; g.fillRect(-6, -6, size + 12, size + 12);
+    warnGlowCache.set(key, c);
+  }
+  return c;
+}
 function drawEnemies() {
   const list = G.enemies, i = G.idx;
   const en = list[i];
@@ -5376,10 +5471,11 @@ function drawEnemies() {
   for (const c of copies) {
     const size = c.size, hs = size / 2;
     ctx.save(); ctx.translate(c.x, 0);
-    if (warn) {
-      ctx.shadowColor = 'rgba(255,30,30,0.95)'; ctx.shadowBlur = 30 + 20 * Math.sin(G.rt * 30);
-      ctx.fillStyle = '#ff3030'; ctx.fillRect(-hs - 6, -hs - 6, size + 12, size + 12);
-      ctx.shadowBlur = 0;
+    if (warn) {   // 빨간 테두리 빛 (shadowBlur는 큰 사각형에 매 프레임 쓰기엔 무거워서 미리 그려 둔 것을 깜빡임)
+      const wg = warnGlow(size), ga = ctx.globalAlpha;
+      ctx.globalAlpha = ga * (0.75 + 0.25 * Math.sin(G.rt * 30));
+      ctx.drawImage(wg, -hs - wg.pad, -hs - wg.pad, size + wg.pad * 2, size + wg.pad * 2);
+      ctx.globalAlpha = ga;
     }
     if (c.flip) { ctx.scale(-1, 1); drawEnemyImg(en, -hs, -hs, size); ctx.scale(-1, 1); }
     else drawEnemyImg(en, -hs, -hs, size);
@@ -5555,11 +5651,15 @@ function drawHands() {
 
   // 오른손: 평소 right, 좌클릭하면 잠깐 right_attack
   const charged = P.bonus > 0;
-  if (charged) { ctx.shadowColor = 'rgba(255,140,40,0.95)'; ctx.shadowBlur = 26 + 10 * Math.sin(G.rt * 10); }
+  // 오른손 그림 + 반격 보너스가 있으면 주황 빛 (shadowBlur 대신 미리 그려 둔 빛)
+  const rdraw = (im, x, y, w = im.naturalWidth, h = im.naturalHeight) => {
+    if (charged) drawHalo(im, 'rgba(255,140,40,0.95)', 30, x, y, w, h, 0.75 + 0.25 * Math.sin(G.rt * 10));
+    ctx.drawImage(im, x, y, w, h);
+  };
   const pose = w.counter && P.poseT > 0 && IMG[w.counter.pose];
   if (RHs.state === 'ult' && G.ult) {
     const fr = G.ult.def.frames, f = fr.find(x => RHs.t < x.until) || fr[fr.length - 1], im = IMG[f.src];
-    if (im) ctx.drawImage(im, W - im.naturalWidth, H - im.naturalHeight + fl);
+    if (im) rdraw(im, W - im.naturalWidth, H - im.naturalHeight + fl);
   } else if (pose) {
     // 카운터 자세: 1920x1080 화면 기준 그림을 오른쪽 위에 맞춰 화면 크기에 맞게
     const s = Math.max(W / 1920, H / 1080), e = easeOutCubic(clamp((w.counter.window - P.poseT) / 0.03, 0, 1));
@@ -5573,7 +5673,7 @@ function drawHands() {
     if (im) {
       let ox = 0, oy = fl;
       if (RHs.hit) { const k = Math.max(0, 1 - (RHs.t - swingOf().impact) / swingOf().hold); ox += 14 * k; oy += 10 * k; }  // 맞힌 반동
-      ctx.drawImage(im, W - im.naturalWidth + ox, H - im.naturalHeight + oy);
+      rdraw(im, W - im.naturalWidth + ox, H - im.naturalHeight + oy);
     }
   } else if (RHs.state === 'punch' && RHs.side !== 'L') {
     const im = IMG[sp.attack];
@@ -5592,7 +5692,7 @@ function drawHands() {
       const s = lerp(0.88, 1, e);
       let ox = lerp(110, 0, e), oy = lerp(130, 0, e) + fl;
       if (RHs.hit) { const k = Math.max(0, 1 - (RHs.t - PUNCH_EXT) / PUNCH_HOLD); ox += 10 * k; oy += 12 * k; }  // 맞힌 반동
-      ctx.drawImage(im, W - iw * s + ox, H - ih * s + oy, iw * s, ih * s);
+      rdraw(im, W - iw * s + ox, H - ih * s + oy, iw * s, ih * s);
       if (w.blade) {
         const fx = W - iw * s + ox + iw * s * 0.06, fy = H - ih * s + oy + ih * s * 0.12;
         const aim = Math.atan2(RHs.ty - fy, RHs.tx - fx), a0 = aim - 1.4, a = lerp(a0, aim + 0.25, easeOutCubic(clamp(RHs.t / 0.09, 0, 1)));
@@ -5605,7 +5705,7 @@ function drawHands() {
     if (im) {
       let ox = 0, oy = bob + fl + (w.blade ? 150 : 0);   // 광선검: 칼날이 화면에 보이게 손을 조금 내림
       if (RHs.state === 'recover' && RHs.side !== 'L') { const e = easeOutCubic(clamp(RHs.t / PUNCH_REC, 0, 1)); ox = lerp(50, 0, e); oy += lerp(70, 0, e); }
-      ctx.drawImage(im, W - im.naturalWidth + ox, H - im.naturalHeight + oy);
+      rdraw(im, W - im.naturalWidth + ox, H - im.naturalHeight + oy);
       if (w.blade) drawBlade(W - im.naturalWidth + ox + im.naturalWidth * 0.2, H - im.naturalHeight + oy + im.naturalHeight * 0.04, -Math.PI / 2 - 0.35 + Math.sin(G.rt * 2.2) * 0.03, 560, w.blade.glow);
     }
   }
@@ -6324,6 +6424,7 @@ function showChapters() {
 function begin(i, cp) {
   initAudio();
   hideAll(); menuEl.classList.add('hidden');
+  G.paused = false;   // 어떤 화면에서 시작하든 일시정지가 남아 있지 않게
   last = performance.now();
   if (ctrlMode === 'keyboard' || touchUI()) { rawMouse.x = W / 2; rawMouse.y = H / 2; applyCursor(); }   // 키보드 모드 · 모바일: 조준점은 화면 가운데서 시작
   startChapter(i, cp);
