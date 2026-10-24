@@ -990,7 +990,7 @@ const CHAPTERS = [
       {   // 중간 보스: 챕3 보스(1페이즈)와 같은 패턴. 회피 · 방어구 · 딸기 섭취는 없음
         // figure: 베기 · 미사일 · 미쿠빔에 나오는 피규어 그림 (미쿠 대신 새 여친) / whiteBeam: 빔 색을 흰색으로
         name: 'NewGF 우현', img: C4 + 'New_GF_WooHyun.png', hp: 10000, cooldown: 1, midboss: true,
-        bossIntro: true, cineDark: 0.5, landLine: 'Im back',   // 챕3 보스 등장 연출 재활용 (배경은 50%까지만 어두워짐), 착지할 때 "Im back"
+        bossIntro: true, cineDark: 0.5,   // 챕3 보스 등장 연출 재활용 (배경은 50%까지만 어두워짐)
         bgm: 'assets/chapters/ch3/sounds/Loki Green Theme.mp3', noSkillName: true,
         attack: 'pattern', patterns: ['sweep', 'missile', 'gbBox', 'gbX', 'gbH', 'gbV'],
         figure: C4 + 'NewGF.png', whiteBeam: true,
@@ -1002,12 +1002,13 @@ const CHAPTERS = [
       },
       {   // 보스: 물 패턴. intro 'sea': 물이 차올라 화면을 덮었다가 빠지면 배경(background) · 보스가 나와 있음
         name: '수영장 우현', img: C4 + 'Pool_WooHyun_1P.png', hp: 50000, cooldown: 0, boss: true,   // cooldown 0: 공격이 끝나면 바로 다음 공격
+        motion: C4 + 'Pool_WooHyun_1P_S.png',   // 패턴 시작할 때 잠깐 이 그림으로 (공격 모션)
         bossIntro: true, intro: 'sea', background: C4 + 'Boss_background.png', noSkillName: true, ai: 'pool',
         bgm: C4 + 'sounds/Poseidon Whistling Theme  終末のワルキューレ  Record of Ragnarok.mp3',
         attack: 'pattern', patterns: ['wJet', 'wBomb', 'wDrop', 'wBombDrop', 'wDropX'],   // 랜덤 (같은 패턴 연속 X)
         assets: [C4 + 'sea.png', C4 + 'water_GiBung.png', C4 + 'water_bangWool.png', C4 + 'NewGF.png'],
         // 2페이즈: 새 여친을 무기로 듦(가끔 1초 카운터 자세) · 영역전개 10% · 범람 20%(다른 패턴과 같이) · 폭격 5번 · 물방울 5개
-        phase2: { at: 0.5, name: '수영장 우현 2P', img: C4 + 'Pool_WooHyun_2P.png', phase: 2, gfWeapon: true, domainChance: 0.1, floodChance: 0.2 },
+        phase2: { at: 0.5, name: '수영장 우현 2P', img: C4 + 'Pool_WooHyun_2P.png', motion: C4 + 'Pool_WooHyun_2P_S.png', phase: 2, gfWeapon: true, domainChance: 0.1, floodChance: 0.2 },
       },
     ],
   },
@@ -1852,6 +1853,7 @@ function setBanner(title, sub, color, max = 1.6, hint = '') { G.banner = { title
 function makeEnemy(def) {
   const img = cropFor(def);
   if (def.phase2 && (def.phase2.img || def.phase2.anim)) cropFor({ ...def, ...def.phase2 });   // 2페이즈 사진도 미리
+  for (const m of [def.motion, def.phase2 && def.phase2.motion]) if (m) cropFor({ ...def, img: m, anim: null });   // 모션 그림도 미리
   if (!def.anim && (def.hue || (def.phase2 && def.phase2.hue))) hueVariants(img);   // 색 바뀌는 적: 챕터 시작할 때 미리 칠해 둠 (싸우는 중 끊김 방지)
   return {
     def, hp: def.hp, hpChip: def.hp, armor: def.armor || 0, cd: def.firstAttack != null ? Math.max(0, def.cooldown - def.firstAttack) : 0, warned: false, state: 'fight', t: 0, alpha: 1,
@@ -2857,6 +2859,7 @@ function startPattern(en) {
   // 영역전개는 범람처럼 다른 패턴과 같이 시전 (이미 펼쳐져 있으면 X)
   en.lastPat = name;
   en.pat = { name, t: 0 };
+  if (d.motion) { en.motionAt = G.time; en.vsc += 0.5; }   // 공격 모션 그림으로 잠깐 바뀜 + 살짝 튐
   PATTERNS[name].start(en.pat, en);
   if (name !== 'domain' && Math.random() < (d.floodChance || 0)) startFlood(en);   // 범람: 다른 패턴과 같이
   if (Math.random() < (d.domainChance || 0) && !bullets.some(b => b.k === 'wdomain')) spawnDomain(en);   // 영역전개: 다른 패턴과 같이
@@ -3168,6 +3171,7 @@ function enemyFrame(en) {
   if (a.idle) return a.idle[0] + Math.floor(G.time * a.fps) % (a.idle[1] - a.idle[0]);
   return Math.floor(G.time * a.fps);
 }
+const MOTION_T = 0.5;   // def.motion: 패턴 시작하고 이 시간 동안 모션 그림
 // 적 그림 한 장 (움짤이면 지금 프레임, hue면 색이 계속 바뀜)
 function drawEnemyImg(en, x, y, size) {
   const d = en.def, a = d.anim, sheet = a && IMG[a.sheet];
@@ -3179,7 +3183,7 @@ function drawEnemyImg(en, x, y, size) {
   }
   if (d.hue) ctx.filter = `hue-rotate(${Math.round((G.rt * d.hue) % 360)}deg) saturate(1.3)`;   // 움짤 + 색 바뀜 (지금은 없음)
   if (sheet) { const [sx, sy, s] = animRect(a, enemyFrame(en), d.focusY); ctx.drawImage(sheet, sx, sy, s, s, x, y, size, size); }
-  else ctx.drawImage(en.img, x, y, size, size);
+  else ctx.drawImage(d.motion && G.time - en.motionAt < MOTION_T ? cropFor({ ...d, img: d.motion, anim: null }) : en.img, x, y, size, size);
   if (d.hue) ctx.filter = 'none';
 }
 // 움짤·사진 한 장면을 사각형에 꽉 차게 (편집점 화면)
@@ -4454,16 +4458,23 @@ Object.assign(PATTERNS, {
   domain: { label: '영역전개', dur: WDOM.shrink + WDOM.cast + 1.3, start: (p, en) => spawnDomain(en) },
 });
 
+const GF_TELL = 0.5;   // 카운터 자세 예고 시간 (빨간 테두리)
 /* ---------- 7) 새 여친 장착 (2페이즈): 새 여친을 무기로 들고, 가끔 1초 동안 카운터 자세 → 그때 때리면 피해 100% 반사 ---------- */
 AI.pool = {
   update(en, dt) {
     if (!en.def.gfWeapon) return;
     if (en.gfStance > 0) { en.gfStance = Math.max(0, en.gfStance - dt); return; }
-    en.gfNext = (en.gfNext ?? rand(3, 5)) - dt;
-    if (en.gfNext <= 0) {
-      en.gfNext = rand(4, 7); en.gfStance = 1;
-      SFX.guardUp(); en.vsc += 0.6;
+    if (en.gfTell > 0) {   // 예고 (빨간 테두리) 끝나면 카운터 자세
+      en.gfTell -= dt;
+      if (en.gfTell > 0) return;
+      en.gfTell = 0; en.gfStance = 1; en.vsc += 0.6;
       texts.push({ str: '카운터 자세!', x: enemyX(en), y: EY - E * 0.42, vx: 0, vy: -40, size: 60, life: 0, max: 1.0, rot: rand(-0.08, 0.08), c1: '#ffffff', c2: '#5ac8ff' });
+      return;
+    }
+    en.gfNext = (en.gfNext ?? rand(3, 5)) - dt;
+    if (en.gfNext <= 0) {   // 바로 자세를 잡지 않고 0.5초 동안 빨갛게 빛나며 예고
+      en.gfNext = rand(4, 7); en.gfTell = GF_TELL;
+      SFX.guardUp();
     }
   },
   onHit(en, x, y) {
@@ -4481,10 +4492,21 @@ AI.pool = {
     ctx.save();
     if (st) { ctx.translate(0, size * 0.08); ctx.rotate(-1.35); }   // 앞으로 가로로 들어서 막는 자세
     else { ctx.translate(size * 0.36, size * 0.12); ctx.rotate(-0.28 + Math.sin(G.rt * 2) * 0.04); }   // 오른손에 들고 있음
-    if (st) drawHalo(im, '#5ac8ff', 40, -w / 2, -h / 2, w, h);
+    if (st) drawHalo(im, '#ff3a3a', 40, -w / 2, -h / 2, w, h);
     ctx.drawImage(im, -w / 2, -h / 2, w, h);
     ctx.restore();
-    if (st) { ctx.fillStyle = `rgba(90,200,255,${0.14 + 0.08 * Math.sin(G.rt * 25)})`; ctx.fillRect(-size / 2, -size / 2, size, size); }
+    if (en.gfTell > 0 || st) {   // 카운터 예고 → 자세 끝날 때까지: 빨간 테두리 + 바깥 빛 (예고 동안 점점 진해지고, 자세 중엔 꽉 찬 채로 깜빡임)
+      const k = st ? 0.85 + 0.15 * Math.sin(G.rt * 25) : 1 - en.gfTell / GF_TELL;
+      ctx.save();
+      ctx.globalAlpha = 0.6 + 0.4 * k;
+      ctx.beginPath(); ctx.rect(-size / 2 - 8, -size / 2 - 8, size + 16, size + 16);
+      ctx.strokeStyle = '#ff2a2a';
+      ctx.globalAlpha *= 0.18; ctx.lineWidth = 70; ctx.stroke();
+      ctx.globalAlpha = (0.6 + 0.4 * k) * 0.35; ctx.lineWidth = 38; ctx.stroke();
+      ctx.globalAlpha = 0.6 + 0.4 * k; softStroke('#ff7a7a', 12, 20, 0.5);
+      ctx.fillStyle = `rgba(255,60,60,${0.12 + 0.12 * k})`; ctx.fillRect(-size / 2, -size / 2, size, size);
+      ctx.restore();
+    }
   },
 };
 
@@ -5399,9 +5421,9 @@ function drawBossSay() {
   const en = curEnemy(), s = en && en.say; if (!s || G.state === 'menu') return;
   const t = G.rt - s.at; if (t > s.dur) { en.say = null; return; }
   const pop = easeOutBack(clamp(t / 0.25, 0, 1)), a = clamp((s.dur - t) / 0.3, 0, 1);
-  ctx.save(); ctx.globalAlpha = a; ctx.translate(W / 2, s.y); ctx.rotate(-0.04); ctx.scale(pop, pop);
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(W / 2, s.y); if (!s.plain) ctx.rotate(-0.04); ctx.scale(pop, pop);
   ctx.font = `bold 100px ${BOSS_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-  if (s.plain) { ctx.fillStyle = '#e00000'; ctx.fillText(s.str, 0, 0); ctx.restore(); return; }
+  if (s.plain) { ctx.fillStyle = '#9a0a0a'; ctx.fillText(s.str, 0, 0); ctx.restore(); return; }   // 검붉은 단색
   ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 16;
   ctx.lineWidth = 16; ctx.strokeStyle = '#000000'; ctx.strokeText(s.str, 0, 0);
   ctx.shadowBlur = 0; ctx.lineWidth = 7; ctx.strokeStyle = '#8f0606'; ctx.strokeText(s.str, 0, 0);
@@ -6769,7 +6791,7 @@ needed.push(BERRY, WOOWP, ...Object.values(ANIM).map(a => a.sheet), ...ADS, ...C
 for (const ch of CHAPTERS) {
   needed.push(ch.background, ch.thumb);
   for (const en of ch.enemies) {
-    needed.push(en.img); if (en.figure) needed.push(en.figure); if (en.phase2) needed.push(en.phase2.img);
+    needed.push(en.img, en.motion); if (en.figure) needed.push(en.figure); if (en.phase2) needed.push(en.phase2.img, en.phase2.motion);
     if (en.background) needed.push(en.background); if (en.assets) needed.push(...en.assets);
   }
 }
